@@ -1,0 +1,35 @@
+#!/bin/sh
+set -a
+. ./intermediate.env
+set +a
+OU="Patricio Latini"
+CN=$1
+DN="/C=$C/ST=$ST/L=$L/O=$O/OU=$OU/CN=$CN/emailAddress=$MAIL"
+echo "-----------------------------"
+echo "Issuing Intermediate CA Certificate for $1"
+echo "-----------------------------"
+cd $INTERMEDIATECA_DIRECTORY
+openssl genrsa \
+      -out private/$1.key.pem $3
+chmod 400 private/$1.key.pem
+echo "Created Key for $1"
+openssl req -config ../intermediate-openssl.cnf \
+      -key private/$1.key.pem \
+      -new -sha256 \
+      -out csr/$1.csr.pem \
+      -subj "$DN"
+echo "Created Certificate Request for $1"
+openssl ca -batch -config ../intermediate-openssl.cnf \
+      -extensions $2 -days 375 -notext -md sha256 \
+      -passin env:INTERMEDIATECA_PASSPHRASE \
+      -in csr/$1.csr.pem \
+      -out certs/$1.cert.pem 
+chmod 444 certs/$1.cert.pem
+echo "Created Certificate for $1"
+echo "Verifying Certificate for $1"
+openssl x509 -noout -text \
+	      -in certs/$1.cert.pem
+openssl verify -CAfile certs/ca-chain.cert.pem \
+	      certs/$1.cert.pem
+echo "Packing Certificates for $1"
+zip $1.zip certs/$1.cert.pem private/$1.key.pem certs/ca-chain.cert.pem

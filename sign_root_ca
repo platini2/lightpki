@@ -1,0 +1,21 @@
+#!/bin/sh
+set -a
+. ./root.env
+set +a
+echo "-----------------------------"
+echo "Sign Intermediate CA CRL with Root CA"
+echo "-----------------------------"
+CSR=`readlink -f $1`
+CERT=`readlink -f $2`
+CACHAIN=`readlink -f $3`
+cd $ROOTCA_DIRECTORY
+openssl ca -batch -config ../root-openssl.cnf -extensions v3_intermediate_ca \
+      -days 3650 -md sha256 \
+      -passin env:ROOTCA_PASSPHRASE \
+      -in $CSR \
+      -out $CERT									# -notext
+chmod 444 $2
+echo "Created Intermediate Certificate Signed by root CA"
+cat $CERT certs/ca.cert.pem > $CACHAIN
+chmod 444 $3
+echo "Created Intermediate Certificate CA Chain"

@@ -1,0 +1,27 @@
+#!/bin/sh
+set -a
+. ./intermediate.env
+set +a
+CN=$INTERMEDIATECN
+DN="/C=$C/ST=$ST/L=$L/O=$O/OU=$OU/CN=$CN/emailAddress=$MAIL"
+echo "-----------------------------"
+echo "Create Intermediate CA"
+echo "-----------------------------"
+cd $INTERMEDIATECA_DIRECTORY
+mkdir certs crl csr newcerts private 
+chmod 700 private
+touch index.txt
+touch certs.db
+echo 1000 > serial
+echo 1000 > crlnumber
+openssl genrsa -aes256 -passout env:INTERMEDIATECA_PASSPHRASE -out private/intermediate.key.pem 4096
+echo "Created Intermediate Private Key"
+chmod 400 private/intermediate.key.pem
+INTERMEDIATEDN="/C=$C/ST=$ST/L=$L/O=$O/OU=$OU/CN=$CN/emailAddress=$MAIL"
+openssl req -config ../intermediate-openssl.cnf \
+      -key private/intermediate.key.pem \
+      -passin env:INTERMEDIATECA_PASSPHRASE \
+      -new -sha256 \
+      -out csr/intermediate.csr.pem \
+      -subj "$DN"
+echo "Created Intermediate CSR"

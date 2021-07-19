@@ -1,0 +1,15 @@
+#!/bin/sh
+set -a
+. ./intermediate.env
+set +a
+echo "-----------------------------"
+echo "Starting OCSP Server $1"
+echo "-----------------------------"
+cd $INTERMEDIATECA_DIRECTORY
+##      -passin env:INTERMEDIATECA_PASSPHRASE \
+openssl ocsp -port 2560 \
+      -index index.txt \
+      -CA certs/ca-chain.cert.pem \
+      -rkey private/$1.key.pem \
+      -rsigner certs/$1.cert.pem \
+      -nrequest 1			# -text

@@ -1,0 +1,11 @@
+#!/bin/sh
+set -a
+. ./intermediate.env
+set +a
+echo "-----------------------------"
+echo "Revoking Intermediate CA Certificate for $1"
+echo "-----------------------------"
+cd $INTERMEDIATECA_DIRECTORY
+openssl ca -config ../intermediate-openssl.cnf \
+      -passin env:INTERMEDIATECA_PASSPHRASE \
+      -revoke certs/$1.cert.pem

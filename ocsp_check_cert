@@ -1,0 +1,16 @@
+#!/bin/sh
+set -a
+. ./intermediate.env
+set +a
+echo "-----------------------------"
+echo "Checking Certificate $1 with OCSP Server"
+echo "-----------------------------"
+CERT=`readlink -f $1`
+cd $INTERMEDIATECA_DIRECTORY
+##      -passin env:INTERMEDIATECA_PASSPHRASE \
+OCSP_URI=`openssl x509 -noout -ocsp_uri -in $CERT`
+openssl ocsp \
+      -url $OCSP_URI \
+      -CAfile certs/ca-chain.cert.pem \
+      -issuer certs/intermediate.cert.pem \
+      -cert $CERT				#  -resp_text 

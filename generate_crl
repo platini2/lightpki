@@ -1,0 +1,12 @@
+#!/bin/sh
+set -a
+. ./intermediate.env
+set +a
+echo "-----------------------------"
+echo "Generate CRL in Intermediate CA"
+echo "-----------------------------"
+cd $INTERMEDIATECA_DIRECTORY
+openssl ca -config ../intermediate-openssl.cnf \
+      -passin env:INTERMEDIATECA_PASSPHRASE \
+      -gencrl -out crl/intermediate.crl.pem
+echo "Created Intermediate Certificate CRL"
