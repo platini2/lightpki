@@ -7,7 +7,7 @@ default_ca = CA_default
 
 [ CA_default ]
 # Directory and file locations.
-base              = /root/ca
+base              = /opt/pki
 dir               = $base/root
 certs             = $dir/certs
 crl_dir           = $dir/crl
