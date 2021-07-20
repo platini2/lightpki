@@ -1,7 +1,4 @@
 #!/bin/sh
-set -a
-. ./root.env
-set +a
 echo "-----------------------------"
 echo "Sign Intermediate CA CRL with Root CA"
 echo "-----------------------------"
