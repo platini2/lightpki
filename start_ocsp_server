@@ -1,7 +1,4 @@
 #!/bin/sh
-set -a
-. ./intermediate.env
-set +a
 echo "-----------------------------"
 echo "Starting OCSP Server $1"
 echo "-----------------------------"
