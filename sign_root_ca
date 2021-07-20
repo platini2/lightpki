@@ -5,9 +5,9 @@ set +a
 echo "-----------------------------"
 echo "Sign Intermediate CA CRL with Root CA"
 echo "-----------------------------"
-CSR=`readlink -f $1`
-CERT=`readlink -f $2`
-CACHAIN=`readlink -f $3`
+CSR=`readlink -fm $1`
+CERT=`readlink -fm $2`
+CACHAIN=`readlink -fm $3`
 cd $ROOTCA_DIRECTORY
 openssl ca -batch -config ../root-openssl.cnf -extensions v3_intermediate_ca \
       -days 3650 -md sha256 \
