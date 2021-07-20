@@ -4,7 +4,7 @@ echo "Starting OCSP Server $1"
 echo "-----------------------------"
 cd $INTERMEDIATECA_DIRECTORY
 ##      -passin env:INTERMEDIATECA_PASSPHRASE \
-openssl ocsp -port 2560 \
+openssl ocsp -port $OCSP_PORT \
       -index index.txt \
       -CA certs/ca-chain.cert.pem \
       -rkey private/$1.key.pem \
