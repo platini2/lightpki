@@ -1,7 +1,4 @@
 #!/bin/sh
-set -a
-. ./intermediate.env
-set +a
 echo "-----------------------------"
 echo "Revoking Intermediate CA Certificate for $1"
 echo "-----------------------------"
