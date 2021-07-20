@@ -4,7 +4,19 @@ if [ -f startup ]; then
     ./create_intermediate_ca
     ./sign_root_ca $INTERMEDIATECA_DIRECTORY/csr/intermediate.csr.pem $INTERMEDIATECA_DIRECTORY/certs/intermediate.cert.pem $INTERMEDIATECA_DIRECTORY/certs/ca-chain.cert.pem
     ./generate_crl
-    ./issue_key_cert ocsp.$DOMAIN "OCSP Service" ocsp 4096
+    if [ "$OCSP" == "true" ]; then
+        OCSP_NAME="ocsp.$DOMAIN"
+        sed -i "s|.*authorityInfoAccess.*|authorityInfoAccess = OCSP;URI:http://$OCSP_NAME:$OCSP_PORT|" intermediate-openssl.cnf
+        ./issue_key_cert $OCSP_NAME "OCSP Service" ocsp 4096
+    else
+        sed -i "s|.*authorityInfoAccess.*|#authorityInfoAccess = OCSP;URI:http://ocsp.example.com|" intermediate-openssl.cnf
+    fi
+    if [ "$CRL" == "true" ]; then
+        CRL_NAME="crl.$DOMAIN"
+        sed -i "s|.*crlDistributionPoints.*|crlDistributionPoints = URI:http://$CRL_NAME/intermediate.crl.pem|" intermediate-openssl.cnf
+    else
+        sed -i "s|.*crlDistributionPoints.*|#crlDistributionPoints = URI:http://example.com/intermediate.crl.pem|" intermediate-openssl.cnf
+    fi
     ./issue_key_cert www.$DOMAIN "Web Service" server_cert 2048
     rm startup
 else 
