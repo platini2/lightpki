@@ -1,7 +1,4 @@
 #!/bin/sh
-set -a
-. ./root.env
-set +a
 CN=$ROOTCN
 DN="/C=$C/ST=$ST/L=$L/O=$O/OU=$OU/CN=$CN/emailAddress=$MAIL"
 echo "-----------------------------"
