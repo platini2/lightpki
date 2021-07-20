@@ -1,7 +1,4 @@
 #!/bin/sh
-set -a
-. ./intermediate.env
-set +a
 CN=$INTERMEDIATECN
 DN="/C=$C/ST=$ST/L=$L/O=$O/OU=$OU/CN=$CN/emailAddress=$MAIL"
 echo "-----------------------------"
