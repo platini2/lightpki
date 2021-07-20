@@ -20,5 +20,10 @@ if [ -f startup ]; then
     ./issue_key_cert www.$DOMAIN "Web Service" server_cert 2048
     rm startup
 else 
-    echo "startup does not exist"
+    if [ "$OCSP_SERVER" == "true" ]; then
+        OCSP_NAME="ocsp.$DOMAIN"
+        ./start_ocsp_server $OCSP_NAME
+    else
+        echo "startup does not exist"
+    fi
 fi
