@@ -32,4 +32,4 @@ openssl x509 -noout -text \
 openssl verify -CAfile certs/ca-chain.cert.pem \
 	      certs/$1.cert.pem
 echo "Packing Certificates for $1"
-zip $1.zip certs/$1.cert.pem private/$1.key.pem certs/ca-chain.cert.pem
+zip $OUTPUT_DIRECTORY/$1.zip certs/$1.cert.pem private/$1.key.pem certs/ca-chain.cert.pem
