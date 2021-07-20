@@ -1,16 +1,13 @@
 #!/bin/sh
-set -a
-. ./intermediate.env
-set +a
-OU="Patricio Latini"
 CN=$1
+OU=$2
 DN="/C=$C/ST=$ST/L=$L/O=$O/OU=$OU/CN=$CN/emailAddress=$MAIL"
 echo "-----------------------------"
 echo "Issuing Intermediate CA Certificate for $1"
 echo "-----------------------------"
 cd $INTERMEDIATECA_DIRECTORY
 openssl genrsa \
-      -out private/$1.key.pem $3
+      -out private/$1.key.pem $4
 chmod 400 private/$1.key.pem
 echo "Created Key for $1"
 openssl req -config ../intermediate-openssl.cnf \
@@ -20,7 +17,7 @@ openssl req -config ../intermediate-openssl.cnf \
       -subj "$DN"
 echo "Created Certificate Request for $1"
 openssl ca -batch -config ../intermediate-openssl.cnf \
-      -extensions $2 -days 375 -notext -md sha256 \
+      -extensions $3 -days 375 -notext -md sha256 \
       -passin env:INTERMEDIATECA_PASSPHRASE \
       -in csr/$1.csr.pem \
       -out certs/$1.cert.pem 
