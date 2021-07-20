@@ -119,7 +119,7 @@ subjectKeyIdentifier = hash
 authorityKeyIdentifier = keyid,issuer:always
 keyUsage = critical, digitalSignature, keyEncipherment
 extendedKeyUsage = serverAuth
-authorityInfoAccess = OCSP;URI:http://ocsp.patriciolatini.com:2560
+authorityInfoAccess = OCSP;URI:http://ocsp.example.com:2560
 #crlDistributionPoints = URI:http://example.com/intermediate.crl.pem
 
 [ crl_ext ]
