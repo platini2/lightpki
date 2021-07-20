@@ -1,1 +1,2 @@
-rm -rf intermediate root
+rm -rf intermediate/* root/* out/*
+touch startup
