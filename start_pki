@@ -1,8 +1,12 @@
 #!/bin/sh
-./create_root_ca
-./create_intermediate_ca
-./sign_root_ca $INTERMEDIATECA_DIRECTORY/csr/intermediate.csr.pem $INTERMEDIATECA_DIRECTORY/certs/intermediate.cert.pem $INTERMEDIATECA_DIRECTORY/certs/ca-chain.cert.pem
-./generate_crl
-./issue_key_cert ocsp.patriciolatini.com "Patricio Latini OCSP" ocsp 4096
-./issue_key_cert www.patriciolatini.com "Web Service" server_cert 2048
-rm startup
+if [ -f startup ]; then
+    ./create_root_ca
+    ./create_intermediate_ca
+    ./sign_root_ca $INTERMEDIATECA_DIRECTORY/csr/intermediate.csr.pem $INTERMEDIATECA_DIRECTORY/certs/intermediate.cert.pem $INTERMEDIATECA_DIRECTORY/certs/ca-chain.cert.pem
+    ./generate_crl
+    ./issue_key_cert ocsp.patriciolatini.com "Patricio Latini OCSP" ocsp 4096
+    ./issue_key_cert www.patriciolatini.com "Web Service" server_cert 2048
+    rm startup
+else 
+    echo "startup does not exist"
+fi
