@@ -1,8 +1,4 @@
 #!/bin/sh
-set -a
-. ./root.env
-. ./intermediate.env
-set +a
 ./create_root_ca
 ./create_intermediate_ca
 ./sign_root_ca $INTERMEDIATECA_DIRECTORY/csr/intermediate.csr.pem $INTERMEDIATECA_DIRECTORY/certs/intermediate.cert.pem $INTERMEDIATECA_DIRECTORY/certs/ca-chain.cert.pem
