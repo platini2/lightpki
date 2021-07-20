@@ -1,7 +1,4 @@
 #!/bin/sh
-set -a
-. ./intermediate.env
-set +a
 echo "-----------------------------"
 echo "Checking Certificate $1 with OCSP Server"
 echo "-----------------------------"
