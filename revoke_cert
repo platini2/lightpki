@@ -1,7 +1,6 @@
 #!/bin/sh
 if [[ $# -ne 1 ]] ; then
     echo 'revoke_cert <CN>'
-    echo '<extension> - server_cert / usr_cert'
     echo 'revoke_cert ftp.example.com'        
     exit 1
 echo "-----------------------------"
