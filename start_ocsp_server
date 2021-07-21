@@ -1,4 +1,8 @@
 #!/bin/sh
+if [[ $# -ne 1 ]] ; then
+    echo 'start_ocsp_server <OCSP Server DN>'
+    echo 'start_ocsp_server ocsp.example.com'        
+    exit 1
 echo "-----------------------------"
 echo "Starting OCSP Server $1"
 echo "-----------------------------"
