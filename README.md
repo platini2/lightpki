@@ -1,7 +1,9 @@
 # lightpki
 
 Running from Docker with Permanent Storage of Certs
-output certs are stored in volume out on host
+output certs are stored in volume out on host.
+
+To start the container
 
 sudo docker run -d --name=lightpki \
   -p 2560:2560 \
@@ -30,8 +32,20 @@ sudo docker run -d --name=lightpki \
 --restart=unless-stopped \
 lightpki
 
+To issue a certificate  
+docker exec -it lightpki ./issue_key_cert ftp.example.com "FTP Server" server_cert 2048
+
+To revoke a certificate 
+docker exec -it lightpki ./revoke_cert ftp.example.com
+
 Running standalone
 Edit .env for proper configuration
 Run initially to set enviroment variable 
 source .env
 
+To initialize the PKI
+./startup_pki
+
+then 
+
+./issue_key_cert ftp.example.com "FTP Server" server_cert 2048
