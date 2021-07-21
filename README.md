@@ -22,11 +22,11 @@ sudo docker run -d --name=lightpki \
   -e C=US \
   -e ST="New York" \
   -e L="New York" \
-  -e O="Organization" \
-  -e OU="Organization Certificate Authority" \
-  -e ROOTCN="Organization CA" \
-  -e INTERMEDIATECN="Organization Intermediate CA" \
-  -e MAIL="admin@patriciolatini.com" \
+  -e O="Example" \
+  -e OU="Example Certificate Authority" \
+  -e ROOTCN="Example Root CA" \
+  -e INTERMEDIATECN="Example Intermediate CA" \
+  -e MAIL="admin@example.com" \
 --restart=unless-stopped \
 lightpki
 
