@@ -16,11 +16,21 @@ openssl genrsa \
       -out private/$1.key.pem $4
 chmod 400 private/$1.key.pem
 echo "Created Key for $1"
-openssl req -config ../intermediate-openssl.cnf \
-      -key private/$1.key.pem \
-      -new -sha256 \
-      -out csr/$1.csr.pem \
-      -subj "$DN"
+if [[ $# -eq 4 ]] ; then                         
+    openssl req -config ../intermediate-openssl.cnf \
+      -key private/$1.key.pem \                  
+      -new -sha256 \                                   
+      -out csr/$1.csr.pem \                            
+      -subj "$DN"                                      
+fi                                                                                                         
+if [[ $# -eq 5 ]] ; then                               
+openssl req -config ../intermediate-openssl.cnf \      
+      -key private/$1.key.pem \                        
+      -new -sha256 \                               
+      -out csr/$1.csr.pem \                  
+      -subj "$DN"                                      
+      -addext "subjectAltName = DNS:$CN,IP:$5" \       
+fi
 echo "Created Certificate Request for $1"
 openssl ca -batch -config ../intermediate-openssl.cnf \
       -extensions $3 -days 375 -notext -md sha256 \
