@@ -4,6 +4,7 @@ if [[ $# -ne 4 ]] ; then
     echo '<extension> - server_cert / usr_cert'
     echo 'issue_key_cert ftp.example.com "FTP Server" server_cert 2048'        
     exit 1
+fi
 CN=$1
 OU=$2
 DN="/C=$C/ST=$ST/L=$L/O=$O/OU=$OU/CN=$CN/emailAddress=$MAIL"
