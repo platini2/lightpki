@@ -1,5 +1,5 @@
 #!/bin/sh
-if [[ $# -ne 4 ]] ; then
+if [[ $# -lt 4 ]] ; then
     echo 'issue_key_cert <CN> <OU> <extension> <key_length>'
     echo '<extension> - server_cert / usr_cert'
     echo 'issue_key_cert ftp.example.com "FTP Server" server_cert 2048'        
@@ -28,7 +28,7 @@ openssl req -config ../intermediate-openssl.cnf \
       -key private/$1.key.pem \                        
       -new -sha256 \                               
       -out csr/$1.csr.pem \                  
-      -subj "$DN"                                      
+      -subj "$DN" \                                    
       -addext "subjectAltName = DNS:$CN,IP:$5" \       
 fi
 echo "Created Certificate Request for $1"
