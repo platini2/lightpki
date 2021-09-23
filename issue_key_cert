@@ -19,14 +19,14 @@ echo "Created Key for $1"
 if [[ $# -eq 4 ]] ; then                         
     openssl req -config ../intermediate-openssl.cnf \
       -key private/$1.key.pem \                  
-      -new -sha256 \                                   
+      -new \                                   
       -out csr/$1.csr.pem \                            
       -subj "$DN"                                      
 fi                                                                                                         
 if [[ $# -eq 5 ]] ; then                               
 openssl req -config ../intermediate-openssl.cnf \      
       -key private/$1.key.pem \                        
-      -new -sha256 \                               
+      -new \                               
       -out csr/$1.csr.pem \                  
       -subj "$DN" \                                    
       -addext "subjectAltName = DNS:$CN,IP:$5" \       
