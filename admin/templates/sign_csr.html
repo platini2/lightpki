@@ -46,8 +46,11 @@ replaced with this CA's own values.</p>
 <form method="post">
   <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
   <input type="hidden" name="stage" value="preview">
+  <label>Upload CSR file (optional)
+    <input type="file" id="csr_file" accept=".pem,.csr,.req,.txt">
+  </label>
   <label>Certificate Signing Request (PEM)
-    <textarea name="csr_pem" rows="14" style="width:100%; font-family: ui-monospace, SFMono-Regular, Menlo, monospace;" required>{{ csr_pem or '' }}</textarea>
+    <textarea name="csr_pem" id="csr_pem" rows="14" style="width:100%; font-family: ui-monospace, SFMono-Regular, Menlo, monospace;" required>{{ csr_pem or '' }}</textarea>
   </label>
   <label>Certificate Type
     <select name="extension">
@@ -58,6 +61,19 @@ replaced with this CA's own values.</p>
   </label>
   <button type="submit">Preview</button>
 </form>
-<p><small>The requester generates their own key and CSR and never shares the private key with this CA -- paste the resulting CSR here to have it signed.</small></p>
+<p><small>The requester generates their own key and CSR and never shares the private key with this CA -- paste the CSR text or upload the .pem/.csr file here to have it signed.</small></p>
+<script>
+  document.getElementById("csr_file").addEventListener("change", function (event) {
+    var file = event.target.files[0];
+    if (!file) {
+      return;
+    }
+    var reader = new FileReader();
+    reader.onload = function (e) {
+      document.getElementById("csr_pem").value = e.target.result;
+    };
+    reader.readAsText(file);
+  });
+</script>
 {% endif %}
 {% endblock %}
