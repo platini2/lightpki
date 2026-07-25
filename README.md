@@ -22,13 +22,13 @@ sudo docker run -d --name=lightpki \
   -e INTERMEDIATECA_PASSPHRASE=TESTING123 \
   -e OUTPUT_DIRECTORY=/opt/pki/out \
   -e C=US \
-  -e ST="New York" \
-  -e L="New York" \
-  -e O="Example" \
-  -e OU="Example Certificate Authority" \
-  -e ROOTCN="Example Root CA" \
-  -e INTERMEDIATECN="Example Intermediate CA" \
-  -e MAIL="admin@example.com" \
+  -e ST=New York \
+  -e L=New York \
+  -e O=Example \
+  -e OU=Example Certificate Authority \
+  -e ROOTCN=Example Root CA \
+  -e INTERMEDIATECN=Example Intermediate CA \
+  -e MAIL=admin@example.com \
 --restart=unless-stopped \
 lightpki
 
