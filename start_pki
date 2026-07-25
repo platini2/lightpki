@@ -1,6 +1,24 @@
 #!/bin/sh
 set -e
 INIT_FLAG="$ROOTCA_DIRECTORY/.initialized"
+OCSP_NAME="ocsp.$DOMAIN"
+
+# intermediate-openssl.cnf ships inside the image, not a persisted volume,
+# so it resets to the checked-in placeholder defaults on every rebuild.
+# Keep it retemplated on every start (not just first-init) so the OCSP/CRL
+# URIs baked into newly issued certs don't silently revert to
+# ocsp.example.com/example.com after a rebuild.
+if [ "$OCSP" = "true" ]; then
+    sed -i "s|.*authorityInfoAccess.*|authorityInfoAccess = OCSP;URI:http://$OCSP_NAME:$OCSP_PORT|" intermediate-openssl.cnf
+else
+    sed -i "s|.*authorityInfoAccess.*|#authorityInfoAccess = OCSP;URI:http://ocsp.example.com|" intermediate-openssl.cnf
+fi
+if [ "$CRL" = "true" ]; then
+    CRL_NAME="crl.$DOMAIN"
+    sed -i "s|.*crlDistributionPoints.*|crlDistributionPoints = URI:http://$CRL_NAME/intermediate.crl.pem|" intermediate-openssl.cnf
+else
+    sed -i "s|.*crlDistributionPoints.*|#crlDistributionPoints = URI:http://example.com/intermediate.crl.pem|" intermediate-openssl.cnf
+fi
 
 if [ ! -f "$INIT_FLAG" ]; then
     ./create_root_ca
@@ -8,17 +26,7 @@ if [ ! -f "$INIT_FLAG" ]; then
     ./sign_root_ca "$INTERMEDIATECA_DIRECTORY/csr/intermediate.csr.pem" "$INTERMEDIATECA_DIRECTORY/certs/intermediate.cert.pem" "$INTERMEDIATECA_DIRECTORY/certs/ca-chain.cert.pem"
     ./generate_crl
     if [ "$OCSP" = "true" ]; then
-        OCSP_NAME="ocsp.$DOMAIN"
-        sed -i "s|.*authorityInfoAccess.*|authorityInfoAccess = OCSP;URI:http://$OCSP_NAME:$OCSP_PORT|" intermediate-openssl.cnf
         ./issue_key_cert "$OCSP_NAME" "OCSP Service" ocsp 4096
-    else
-        sed -i "s|.*authorityInfoAccess.*|#authorityInfoAccess = OCSP;URI:http://ocsp.example.com|" intermediate-openssl.cnf
-    fi
-    if [ "$CRL" = "true" ]; then
-        CRL_NAME="crl.$DOMAIN"
-        sed -i "s|.*crlDistributionPoints.*|crlDistributionPoints = URI:http://$CRL_NAME/intermediate.crl.pem|" intermediate-openssl.cnf
-    else
-        sed -i "s|.*crlDistributionPoints.*|#crlDistributionPoints = URI:http://example.com/intermediate.crl.pem|" intermediate-openssl.cnf
     fi
     ./issue_key_cert "www.$DOMAIN" "Web Service" server_cert 2048
     touch "$INIT_FLAG"
@@ -26,12 +34,12 @@ fi
 
 if [ "$ADMIN_UI" = "true" ]; then
     if [ "$OCSP_SERVER" = "true" ]; then
-        ./start_ocsp_server "ocsp.$DOMAIN" &
+        ./start_ocsp_server "$OCSP_NAME" &
     fi
     echo "Starting admin UI on port ${ADMIN_PORT:-8080}"
     exec python3 admin/app.py
 elif [ "$OCSP_SERVER" = "true" ]; then
-    ./start_ocsp_server "ocsp.$DOMAIN"
+    ./start_ocsp_server "$OCSP_NAME"
 else
     echo "PKI ready (OCSP server disabled)"
 fi
