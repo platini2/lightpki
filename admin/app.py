@@ -232,6 +232,71 @@ def inspect_cert(cert_path, cn):
     return {"extension": extension, "key_spec": key_spec, "extra_sans": extra_sans}
 
 
+def _openssl_query(cert_path, *args):
+    proc = subprocess.run(
+        ["openssl", "x509", "-in", cert_path, "-noout", *args],
+        capture_output=True,
+        text=True,
+    )
+    if proc.returncode != 0:
+        return None
+    output = proc.stdout.strip()
+    return output.split("=", 1)[1] if "=" in output else output
+
+
+def describe_cert(cert_path):
+    """Build a human-friendly decode of a certificate for the View page."""
+    if not os.path.isfile(cert_path):
+        return None
+
+    proc = subprocess.run(
+        ["openssl", "x509", "-in", cert_path, "-noout", "-text"],
+        capture_output=True,
+        text=True,
+    )
+    if proc.returncode != 0:
+        return None
+    text = proc.stdout
+
+    key_algo = None
+    if "id-ecPublicKey" in text:
+        m = re.search(r"ASN1 OID:\s*(\S+)", text)
+        key_algo = f"ECDSA ({m.group(1)})" if m else "ECDSA"
+    elif "rsaEncryption" in text:
+        m = re.search(r"Public-Key:\s*\((\d+)\s*bit\)", text)
+        key_algo = f"RSA {m.group(1)}-bit" if m else "RSA"
+
+    def extension_line(label):
+        m = re.search(rf"{label}:.*?\n\s*(.+)", text)
+        return m.group(1).strip() if m else None
+
+    sans = []
+    san_line = extension_line("X509v3 Subject Alternative Name")
+    if san_line:
+        for part in san_line.split(","):
+            part = part.strip()
+            if part:
+                sans.append(part.replace("IP Address:", "IP:"))
+
+    return {
+        "subject": _openssl_query(cert_path, "-subject"),
+        "issuer": _openssl_query(cert_path, "-issuer"),
+        "serial": _openssl_query(cert_path, "-serial"),
+        "not_before": _openssl_query(cert_path, "-startdate"),
+        "not_after": _openssl_query(cert_path, "-enddate"),
+        "fingerprint_sha256": _openssl_query(cert_path, "-fingerprint", "-sha256"),
+        "key_algo": key_algo,
+        "sig_algo": re.search(r"Signature Algorithm:\s*(\S+)", text).group(1)
+        if re.search(r"Signature Algorithm:\s*(\S+)", text)
+        else None,
+        "sans": sans,
+        "key_usage": extension_line("X509v3 Key Usage"),
+        "ext_key_usage": extension_line("X509v3 Extended Key Usage"),
+        "aia": extension_line("Authority Information Access"),
+        "raw_text": text,
+    }
+
+
 def _expiry_notified_path():
     return os.path.join(os.environ.get("INTERMEDIATECA_DIRECTORY", ""), ".expiry_notified")
 
@@ -383,6 +448,26 @@ def load_certificates():
 @app.route("/")
 def dashboard():
     return render_template("dashboard.html", ca=ca_summary(), certs=load_certificates())
+
+
+@app.route("/cert/<serial>")
+def view_cert(serial):
+    if not SERIAL_RE.match(serial):
+        abort(400)
+
+    entries = load_certificates()
+    match = next((e for e in entries if e["serial"] == serial), None)
+    if match is None:
+        abort(404)
+
+    intermediate_dir = os.environ.get("INTERMEDIATECA_DIRECTORY", "")
+    cert_path = os.path.join(intermediate_dir, "certs", f"{match['cn']}.cert.pem")
+    details = describe_cert(cert_path)
+    if details is None:
+        flash(f"Could not read the certificate file for {match['cn']}.", "error")
+        return redirect(url_for("dashboard"))
+
+    return render_template("cert_view.html", entry=match, details=details)
 
 
 @app.route("/issue", methods=["GET", "POST"])

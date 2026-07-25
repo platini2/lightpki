@@ -1,0 +1,45 @@
+{% extends "base.html" %}
+{% block title %}{{ entry.cn }} - LightPKI Admin{% endblock %}
+{% block content %}
+<p><a href="{{ url_for('dashboard') }}">&larr; Back to dashboard</a></p>
+<h2>{{ entry.cn }}</h2>
+
+<table>
+  <tr><th>Status</th><td><span class="status status-{{ entry.status|lower|replace(' ', '-') }}">{{ entry.status }}</span></td></tr>
+  <tr><th>Serial</th><td>{{ details.serial or entry.serial }}</td></tr>
+  <tr><th>Organizational Unit</th><td>{{ entry.ou }}</td></tr>
+  <tr><th>Subject</th><td>{{ details.subject }}</td></tr>
+  <tr><th>Issuer</th><td>{{ details.issuer }}</td></tr>
+  <tr><th>Not Before</th><td>{{ details.not_before }}</td></tr>
+  <tr><th>Not After</th><td>{{ details.not_after }}</td></tr>
+  {% if entry.revoked_at %}
+  <tr><th>Revoked At</th><td>{{ entry.revoked_at }}</td></tr>
+  {% endif %}
+  <tr><th>Key</th><td>{{ details.key_algo or "unknown" }}</td></tr>
+  <tr><th>Signature Algorithm</th><td>{{ details.sig_algo or "unknown" }}</td></tr>
+  <tr><th>SHA-256 Fingerprint</th><td><code>{{ details.fingerprint_sha256 }}</code></td></tr>
+  <tr><th>Key Usage</th><td>{{ details.key_usage or "-" }}</td></tr>
+  <tr><th>Extended Key Usage</th><td>{{ details.ext_key_usage or "-" }}</td></tr>
+  <tr><th>Authority Info Access</th><td>{{ details.aia or "-" }}</td></tr>
+</table>
+
+<h3>Subject Alternative Names</h3>
+{% if details.sans %}
+<ul>
+  {% for san in details.sans %}
+  <li>{{ san }}</li>
+  {% endfor %}
+</ul>
+{% else %}
+<p>None.</p>
+{% endif %}
+
+{% if entry.bundle %}
+<p><a href="{{ url_for('download', filename=entry.bundle) }}">Download bundle (cert + key + chain)</a></p>
+{% endif %}
+
+<details>
+  <summary>Raw certificate (openssl x509 -text)</summary>
+  <pre>{{ details.raw_text }}</pre>
+</details>
+{% endblock %}

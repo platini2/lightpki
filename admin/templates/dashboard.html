@@ -27,7 +27,7 @@
     </tr>
     {% for c in certs %}
     <tr>
-      <td>{{ c.cn }}</td>
+      <td><a href="{{ url_for('view_cert', serial=c.serial) }}">{{ c.cn }}</a></td>
       <td>{{ c.ou }}</td>
       <td>{{ c.serial }}</td>
       <td><span class="status status-{{ c.status|lower|replace(' ', '-') }}">{{ c.status }}</span></td>
@@ -41,6 +41,7 @@
         {% endif %}
       </td>
       <td>
+        <a class="inline-form" href="{{ url_for('view_cert', serial=c.serial) }}">View</a>
         {% if c.status in ["Valid", "Expiring Soon"] %}
         <form class="inline-form" method="post" action="{{ url_for('revoke', serial=c.serial) }}" onsubmit="return confirm('Revoke certificate for {{ c.cn }}?');">
           <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
