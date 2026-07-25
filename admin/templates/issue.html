@@ -5,7 +5,7 @@
 <form method="post">
   <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
   <label>Common Name (CN)
-    <input type="text" name="cn" value="{{ cn or '' }}" placeholder="ftp.example.com" required>
+    <input type="text" name="cn" value="{{ cn or '' }}" placeholder="ftp.example.com or *.example.com" required>
   </label>
   <label>Organizational Unit (OU)
     <input type="text" name="ou" value="{{ ou or '' }}" placeholder="FTP Server" required>

@@ -12,8 +12,17 @@ fi
 CN=$1
 OU=$2
 case "$CN" in
+    \*.*)
+        WILDCARD_REST=${CN#\*.}
+        case "$WILDCARD_REST" in
+            ''|*[!A-Za-z0-9._-]*)
+                echo "Invalid CN '$CN': wildcard must be '*.' followed by letters, digits, '.', '_', '-'" >&2
+                exit 1
+                ;;
+        esac
+        ;;
     *[!A-Za-z0-9._-]*)
-        echo "Invalid CN '$CN': only letters, digits, '.', '_', '-' are allowed" >&2
+        echo "Invalid CN '$CN': only letters, digits, '.', '_', '-', or a single leading '*.' wildcard are allowed" >&2
         exit 1
         ;;
 esac
@@ -28,27 +37,27 @@ case "$4" in
             echo "Invalid key spec '$4': must be an RSA key length (e.g. 2048, 4096) or a known EC curve name (e.g. prime256v1, secp384r1, secp521r1)" >&2
             exit 1
         fi
-        openssl ecparam -name "$4" -genkey -noout -out private/$1.key.pem
+        openssl ecparam -name "$4" -genkey -noout -out "private/$1.key.pem"
         ;;
     *)
-        openssl genrsa -out private/$1.key.pem $4
+        openssl genrsa -out "private/$1.key.pem" $4
         ;;
 esac
-chmod 400 private/$1.key.pem
+chmod 400 "private/$1.key.pem"
 echo "Created Key for $1"
 if [ $# -eq 4 ] ; then
     openssl req -config ../intermediate-openssl.cnf \
-      -key private/$1.key.pem \
+      -key "private/$1.key.pem" \
       -new -sha256\
-      -out csr/$1.csr.pem \
+      -out "csr/$1.csr.pem" \
       -subj "$DN"
 fi
 if [ $# -eq 5 ] ; then
     SAN=DNS:$CN,IP:$5
     openssl req -config ../intermediate-openssl.cnf \
-      -key private/$1.key.pem \
+      -key "private/$1.key.pem" \
       -new -sha256\
-      -out csr/$1.csr.pem \
+      -out "csr/$1.csr.pem" \
       -subj "$DN" \
       -addext "subjectAltName = $SAN"
 fi
@@ -56,14 +65,14 @@ echo "Created Certificate Request for $1"
 openssl ca -batch -config ../intermediate-openssl.cnf \
       -extensions $3 -days ${CERT_DAYS:-3650} -notext -md sha256 \
       -passin env:INTERMEDIATECA_PASSPHRASE \
-      -in csr/$1.csr.pem \
-      -out certs/$1.cert.pem
-chmod 444 certs/$1.cert.pem
+      -in "csr/$1.csr.pem" \
+      -out "certs/$1.cert.pem"
+chmod 444 "certs/$1.cert.pem"
 echo "Created Certificate for $1"
 echo "Verifying Certificate for $1"
 openssl x509 -noout -text \
-	      -in certs/$1.cert.pem
+	      -in "certs/$1.cert.pem"
 openssl verify -CAfile certs/ca-chain.cert.pem \
-	      certs/$1.cert.pem
+	      "certs/$1.cert.pem"
 echo "Packing Certificates for $1"
-zip $OUTPUT_DIRECTORY/$1.zip certs/$1.cert.pem private/$1.key.pem certs/ca-chain.cert.pem
+zip "$OUTPUT_DIRECTORY/$1.zip" "certs/$1.cert.pem" "private/$1.key.pem" certs/ca-chain.cert.pem

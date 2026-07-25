@@ -28,10 +28,10 @@ if not ADMIN_PASSWORD:
         "ADMIN_PASSWORD is not set or empty; refusing to start an unauthenticated admin UI"
     )
 
-CN_RE = re.compile(r"^[A-Za-z0-9._-]+$")
+CN_RE = re.compile(r"^(\*\.)?[A-Za-z0-9._-]+$")
 OU_RE = re.compile(r"^[A-Za-z0-9 ._-]+$")
 SERIAL_RE = re.compile(r"^[0-9A-Fa-f]+$")
-BUNDLE_RE = re.compile(r"^[A-Za-z0-9._-]+\.zip$")
+BUNDLE_RE = re.compile(r"^[A-Za-z0-9._*-]+\.zip$")
 EXTENSIONS = ("server_cert", "usr_cert", "ocsp")
 KEY_SPECS = {
     "2048": "RSA 2048",
@@ -244,7 +244,10 @@ def issue():
 
     errors = []
     if not CN_RE.match(cn):
-        errors.append('CN must contain only letters, digits, ".", "_", "-".')
+        errors.append(
+            'CN must contain only letters, digits, ".", "_", "-", '
+            'optionally prefixed with a single "*." wildcard label.'
+        )
     if not OU_RE.match(ou):
         errors.append('OU must contain only letters, digits, spaces, ".", "_", "-".')
     if extension not in EXTENSIONS:

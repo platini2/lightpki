@@ -7,8 +7,17 @@ if [ $# -ne 1 ] ; then
     exit 1
 fi
 case "$1" in
+    \*.*)
+        WILDCARD_REST=${1#\*.}
+        case "$WILDCARD_REST" in
+            ''|*[!A-Za-z0-9._-]*)
+                echo "Invalid CN '$1': wildcard must be '*.' followed by letters, digits, '.', '_', '-'" >&2
+                exit 1
+                ;;
+        esac
+        ;;
     *[!A-Za-z0-9._-]*)
-        echo "Invalid CN '$1': only letters, digits, '.', '_', '-' are allowed" >&2
+        echo "Invalid CN '$1': only letters, digits, '.', '_', '-', or a single leading '*.' wildcard are allowed" >&2
         exit 1
         ;;
 esac
@@ -18,4 +27,4 @@ echo "-----------------------------"
 cd $INTERMEDIATECA_DIRECTORY
 openssl ca -config ../intermediate-openssl.cnf \
       -passin env:INTERMEDIATECA_PASSPHRASE \
-      -revoke certs/$1.cert.pem
+      -revoke "certs/$1.cert.pem"
