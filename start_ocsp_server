@@ -1,9 +1,8 @@
 #!/bin/sh
 set -e
-set -e
 if [ $# -ne 1 ] ; then
     echo 'start_ocsp_server <OCSP Server DN>'
-    echo 'start_ocsp_server ocsp.example.com'        
+    echo 'start_ocsp_server ocsp.example.com'
     exit 1
 fi
 echo "-----------------------------"
@@ -15,5 +14,4 @@ openssl ocsp -port $OCSP_PORT \
       -index index.txt \
       -CA certs/ca-chain.cert.pem \
       -rkey private/$1.key.pem \
-      -rsigner certs/$1.cert.pem \
-      -nrequest 1			# -text
+      -rsigner certs/$1.cert.pem			# -text
