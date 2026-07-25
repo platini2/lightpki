@@ -12,8 +12,9 @@ directories you control.
   `keyUsage`, `extendedKeyUsage`).
 - Issue server, client, and OCSP-signing certificates (`server_cert`,
   `usr_cert`, `ocsp`).
-- RSA (2048/4096) or ECDSA (`prime256v1`, `secp384r1`, `secp521r1`) keys, your
-  choice per certificate.
+- RSA (any length) or ECDSA (`prime256v1`, `secp384r1`, `secp521r1`) keys,
+  your choice independently for the root CA, the intermediate CA, and each
+  issued certificate.
 - Wildcard CNs (`*.example.com`).
 - Multiple Subject Alternative Names per certificate — any mix of DNS names
   (including wildcards) and IPv4/IPv6 addresses; the CN is always included
@@ -227,6 +228,7 @@ reverse proxy for anything beyond local/trusted-network use.
 | `CRL` | `false` | Whether to set a CRL Distribution Point URI in issued certs. |
 | `ROOTCA_DIRECTORY` / `INTERMEDIATECA_DIRECTORY` | — | Where each CA's keys/certs/database live. |
 | `ROOTCA_PASSPHRASE` / `INTERMEDIATECA_PASSPHRASE` | — | Passphrases encrypting each CA's private key. Required (non-empty) or the corresponding `create_*_ca` script refuses to run. |
+| `ROOTCA_KEY_SPEC` / `INTERMEDIATECA_KEY_SPEC` | `4096` | RSA key length or EC curve name (`prime256v1`, `secp384r1`, `secp521r1`) for each CA's own key. Independent per CA -- an EC root can sign an RSA intermediate and vice versa. |
 | `OUTPUT_DIRECTORY` | — | Where issued cert/key/chain zip bundles are written. |
 | `C`, `ST`, `L`, `O`, `OU`, `MAIL` | — | Distinguished Name fields shared by both CAs. |
 | `ROOTCN` / `INTERMEDIATECN` | — | Common Names for the root/intermediate CA certs. |

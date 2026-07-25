@@ -4,6 +4,7 @@ if [ -z "$ROOTCA_PASSPHRASE" ]; then
     echo "ROOTCA_PASSPHRASE is not set or empty; refusing to create an unprotected key" >&2
     exit 1
 fi
+ROOTCA_KEY_SPEC=${ROOTCA_KEY_SPEC:-4096}
 CN=$ROOTCN
 DN="/C=$C/ST=$ST/L=$L/O=$O/OU=$OU/CN=$CN/emailAddress=$MAIL"
 echo "-----------------------------"
@@ -15,7 +16,19 @@ chmod 700 private
 umask 077
 touch index.txt
 echo 1000 > serial
-openssl genrsa -aes256 -passout env:ROOTCA_PASSPHRASE -out private/ca.key.pem 4096
+case "$ROOTCA_KEY_SPEC" in
+    ''|*[!0-9]*)
+        if ! openssl ecparam -name "$ROOTCA_KEY_SPEC" -noout >/dev/null 2>&1; then
+            echo "Invalid ROOTCA_KEY_SPEC '$ROOTCA_KEY_SPEC': must be an RSA key length (e.g. 2048, 4096) or a known EC curve name (e.g. prime256v1, secp384r1, secp521r1)" >&2
+            exit 1
+        fi
+        openssl genpkey -algorithm EC -pkeyopt ec_paramgen_curve:"$ROOTCA_KEY_SPEC" -pkeyopt ec_param_enc:named_curve \
+              -aes256 -pass env:ROOTCA_PASSPHRASE -out private/ca.key.pem
+        ;;
+    *)
+        openssl genrsa -aes256 -passout env:ROOTCA_PASSPHRASE -out private/ca.key.pem "$ROOTCA_KEY_SPEC"
+        ;;
+esac
 chmod 400 private/ca.key.pem
 openssl req -config ../root-openssl.cnf \
       -key private/ca.key.pem \

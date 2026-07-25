@@ -4,6 +4,7 @@ if [ -z "$INTERMEDIATECA_PASSPHRASE" ]; then
     echo "INTERMEDIATECA_PASSPHRASE is not set or empty; refusing to create an unprotected key" >&2
     exit 1
 fi
+INTERMEDIATECA_KEY_SPEC=${INTERMEDIATECA_KEY_SPEC:-4096}
 CN=$INTERMEDIATECN
 DN="/C=$C/ST=$ST/L=$L/O=$O/OU=$OU/CN=$CN/emailAddress=$MAIL"
 echo "-----------------------------"
@@ -17,7 +18,19 @@ touch index.txt
 touch certs.db
 echo 1000 > serial
 echo 1000 > crlnumber
-openssl genrsa -aes256 -passout env:INTERMEDIATECA_PASSPHRASE -out private/intermediate.key.pem 4096
+case "$INTERMEDIATECA_KEY_SPEC" in
+    ''|*[!0-9]*)
+        if ! openssl ecparam -name "$INTERMEDIATECA_KEY_SPEC" -noout >/dev/null 2>&1; then
+            echo "Invalid INTERMEDIATECA_KEY_SPEC '$INTERMEDIATECA_KEY_SPEC': must be an RSA key length (e.g. 2048, 4096) or a known EC curve name (e.g. prime256v1, secp384r1, secp521r1)" >&2
+            exit 1
+        fi
+        openssl genpkey -algorithm EC -pkeyopt ec_paramgen_curve:"$INTERMEDIATECA_KEY_SPEC" -pkeyopt ec_param_enc:named_curve \
+              -aes256 -pass env:INTERMEDIATECA_PASSPHRASE -out private/intermediate.key.pem
+        ;;
+    *)
+        openssl genrsa -aes256 -passout env:INTERMEDIATECA_PASSPHRASE -out private/intermediate.key.pem "$INTERMEDIATECA_KEY_SPEC"
+        ;;
+esac
 echo "Created Intermediate Private Key"
 chmod 400 private/intermediate.key.pem
 INTERMEDIATEDN="/C=$C/ST=$ST/L=$L/O=$O/OU=$OU/CN=$CN/emailAddress=$MAIL"
