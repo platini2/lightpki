@@ -34,10 +34,10 @@ if [[ $# -eq 5 ]] ; then
 fi
 echo "Created Certificate Request for $1"
 openssl ca -batch -config ../intermediate-openssl.cnf \
-      -extensions $3 -days 375 -notext -md sha256 \
+      -extensions $3 -days ${CERT_DAYS:-3650} -notext -md sha256 \
       -passin env:INTERMEDIATECA_PASSPHRASE \
       -in csr/$1.csr.pem \
-      -out certs/$1.cert.pem 
+      -out certs/$1.cert.pem
 chmod 444 certs/$1.cert.pem
 echo "Created Certificate for $1"
 echo "Verifying Certificate for $1"
