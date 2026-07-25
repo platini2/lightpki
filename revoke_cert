@@ -6,6 +6,12 @@ if [ $# -ne 1 ] ; then
     echo 'revoke_cert ftp.example.com'
     exit 1
 fi
+case "$1" in
+    *[!A-Za-z0-9._-]*)
+        echo "Invalid CN '$1': only letters, digits, '.', '_', '-' are allowed" >&2
+        exit 1
+        ;;
+esac
 echo "-----------------------------"
 echo "Revoking Intermediate CA Certificate for $1"
 echo "-----------------------------"

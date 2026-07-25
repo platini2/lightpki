@@ -9,6 +9,12 @@ if [ $# -lt 4 ] ; then
 fi
 CN=$1
 OU=$2
+case "$CN" in
+    *[!A-Za-z0-9._-]*)
+        echo "Invalid CN '$CN': only letters, digits, '.', '_', '-' are allowed" >&2
+        exit 1
+        ;;
+esac
 DN="/C=$C/ST=$ST/L=$L/O=$O/OU=$OU/CN=$CN/emailAddress=$MAIL"
 echo "-----------------------------"
 echo "Issuing Intermediate CA Certificate for $1"
