@@ -1,0 +1,68 @@
+:root {
+  color-scheme: light dark;
+  --border: #999;
+}
+
+body {
+  font-family: system-ui, sans-serif;
+  margin: 0;
+  padding: 0 1.5rem 2rem;
+}
+
+header {
+  padding: 1rem 0;
+  border-bottom: 1px solid var(--border);
+  margin-bottom: 1.5rem;
+}
+
+nav a {
+  margin-right: 1rem;
+}
+
+table {
+  border-collapse: collapse;
+  width: 100%;
+  margin-bottom: 1.5rem;
+}
+
+th, td {
+  border: 1px solid var(--border);
+  padding: 0.4rem 0.6rem;
+  text-align: left;
+}
+
+form label {
+  display: block;
+  margin-bottom: 0.75rem;
+}
+
+input, select {
+  display: block;
+  margin-top: 0.25rem;
+}
+
+.flashes {
+  list-style: none;
+  padding: 0;
+}
+
+.flash {
+  padding: 0.5rem 0.75rem;
+  margin-bottom: 0.5rem;
+  border-radius: 4px;
+}
+
+.flash-success {
+  background: #d7f5d7;
+  color: #14591d;
+}
+
+.flash-error {
+  background: #f8d7da;
+  color: #7a1e26;
+  white-space: pre-wrap;
+}
+
+.status-valid { color: #14591d; font-weight: 600; }
+.status-revoked { color: #7a1e26; font-weight: 600; }
+.status-expired { color: #8a6d3b; font-weight: 600; }

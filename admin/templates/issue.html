@@ -1,0 +1,32 @@
+{% extends "base.html" %}
+{% block title %}Issue Certificate - LightPKI Admin{% endblock %}
+{% block content %}
+<h2>Issue New Certificate</h2>
+<form method="post">
+  <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+  <label>Common Name (CN)
+    <input type="text" name="cn" value="{{ cn or '' }}" placeholder="ftp.example.com" required>
+  </label>
+  <label>Organizational Unit (OU)
+    <input type="text" name="ou" value="{{ ou or '' }}" placeholder="FTP Server" required>
+  </label>
+  <label>Certificate Type
+    <select name="extension">
+      {% for e in extensions %}
+      <option value="{{ e }}" {% if e == extension %}selected{% endif %}>{{ e }}</option>
+      {% endfor %}
+    </select>
+  </label>
+  <label>Key Length
+    <select name="key_length">
+      {% for k in key_lengths %}
+      <option value="{{ k }}" {% if k == key_length %}selected{% endif %}>{{ k }}</option>
+      {% endfor %}
+    </select>
+  </label>
+  <label>SAN IP (optional)
+    <input type="text" name="san_ip" value="{{ san_ip or '' }}" placeholder="10.0.0.5">
+  </label>
+  <button type="submit">Issue Certificate</button>
+</form>
+{% endblock %}

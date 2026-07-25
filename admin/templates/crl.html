@@ -1,0 +1,15 @@
+{% extends "base.html" %}
+{% block title %}CRL - LightPKI Admin{% endblock %}
+{% block content %}
+<h2>Certificate Revocation List</h2>
+{% if crl_exists %}
+  <p><a href="{{ url_for('crl_download') }}">Download raw CRL</a></p>
+  {% if crl_text %}
+  <pre>{{ crl_text }}</pre>
+  {% else %}
+  <p>Could not parse CRL.</p>
+  {% endif %}
+{% else %}
+  <p>No CRL has been generated yet.</p>
+{% endif %}
+{% endblock %}

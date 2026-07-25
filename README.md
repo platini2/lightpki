@@ -7,6 +7,7 @@ To start the container
 
 sudo docker run -d --name=lightpki \
   -p 2560:2560 \
+  -p 8080:8080 \
   -v /var/docker/lightpki/root:/opt/pki/root:rw \
   -v /var/docker/lightpki/intermediate:/opt/pki/intermediate:rw \
   -v /var/docker/lightpki/out:/opt/pki/out:rw \
@@ -29,6 +30,10 @@ sudo docker run -d --name=lightpki \
   -e ROOTCN=Example Root CA \
   -e INTERMEDIATECN=Example Intermediate CA \
   -e MAIL=admin@example.com \
+  -e ADMIN_UI=true \
+  -e ADMIN_PORT=8080 \
+  -e ADMIN_USERNAME=admin \
+  -e ADMIN_PASSWORD=CHANGE_ME \
 --restart=unless-stopped \
 lightpki
 
@@ -37,6 +42,15 @@ docker exec -it lightpki ./issue_key_cert ftp.example.com "FTP Server" server_ce
 
 To revoke a certificate 
 docker exec -it lightpki ./revoke_cert ftp.example.com
+
+Admin UI
+When ADMIN_UI=true, a web UI is served on ADMIN_PORT (default 8080) at
+http://<host>:8080/ protected by HTTP Basic Auth (ADMIN_USERNAME /
+ADMIN_PASSWORD). It lets you view CA and certificate status, issue and
+revoke certificates, and view/download the CRL, without needing
+docker exec. Always set ADMIN_PASSWORD to something other than the
+default before exposing this port. Put it behind a TLS-terminating
+reverse proxy for anything beyond local/trusted-network use.
 
 Running standalone
 Edit .env for proper configuration

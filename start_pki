@@ -24,7 +24,13 @@ if [ ! -f "$INIT_FLAG" ]; then
     touch "$INIT_FLAG"
 fi
 
-if [ "$OCSP_SERVER" = "true" ]; then
+if [ "$ADMIN_UI" = "true" ]; then
+    if [ "$OCSP_SERVER" = "true" ]; then
+        ./start_ocsp_server "ocsp.$DOMAIN" &
+    fi
+    echo "Starting admin UI on port ${ADMIN_PORT:-8080}"
+    exec python3 admin/app.py
+elif [ "$OCSP_SERVER" = "true" ]; then
     ./start_ocsp_server "ocsp.$DOMAIN"
 else
     echo "PKI ready (OCSP server disabled)"

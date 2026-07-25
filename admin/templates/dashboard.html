@@ -1,0 +1,58 @@
+{% extends "base.html" %}
+{% block title %}Dashboard - LightPKI Admin{% endblock %}
+{% block content %}
+<section>
+  <h2>Certificate Authorities</h2>
+  <table>
+    <tr><th>CA</th><th>Subject</th><th>Expires</th></tr>
+    <tr>
+      <td>Root</td>
+      <td>{{ ca.root.subject if ca.root else "not initialized" }}</td>
+      <td>{{ ca.root.enddate if ca.root else "-" }}</td>
+    </tr>
+    <tr>
+      <td>Intermediate</td>
+      <td>{{ ca.intermediate.subject if ca.intermediate else "not initialized" }}</td>
+      <td>{{ ca.intermediate.enddate if ca.intermediate else "-" }}</td>
+    </tr>
+  </table>
+</section>
+
+<section>
+  <h2>Issued Certificates</h2>
+  {% if certs %}
+  <table>
+    <tr>
+      <th>CN</th><th>OU</th><th>Serial</th><th>Status</th><th>Expires</th><th>Revoked</th><th>Bundle</th><th></th>
+    </tr>
+    {% for c in certs %}
+    <tr>
+      <td>{{ c.cn }}</td>
+      <td>{{ c.ou }}</td>
+      <td>{{ c.serial }}</td>
+      <td><span class="status status-{{ c.status|lower }}">{{ c.status }}</span></td>
+      <td>{{ c.expiry }}</td>
+      <td>{{ c.revoked_at or "-" }}</td>
+      <td>
+        {% if c.bundle %}
+          <a href="{{ url_for('download', filename=c.bundle) }}">Download</a>
+        {% else %}
+          -
+        {% endif %}
+      </td>
+      <td>
+        {% if c.status == "Valid" %}
+        <form method="post" action="{{ url_for('revoke', serial=c.serial) }}" onsubmit="return confirm('Revoke certificate for {{ c.cn }}?');">
+          <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+          <button type="submit">Revoke</button>
+        </form>
+        {% endif %}
+      </td>
+    </tr>
+    {% endfor %}
+  </table>
+  {% else %}
+  <p>No certificates issued yet.</p>
+  {% endif %}
+</section>
+{% endblock %}
