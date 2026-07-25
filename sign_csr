@@ -1,0 +1,62 @@
+#!/bin/sh
+set -e
+umask 077
+if [ $# -ne 2 ] ; then
+    echo 'sign_csr <CSR_FILE> <extension>'
+    echo '<extension> - server_cert / usr_cert / ocsp'
+    echo 'sign_csr /path/to/request.csr.pem server_cert'
+    exit 1
+fi
+CSR_FILE=$(readlink -f "$1")
+EXTENSION=$2
+
+if [ ! -f "$CSR_FILE" ]; then
+    echo "CSR file not found: $CSR_FILE" >&2
+    exit 1
+fi
+
+if ! openssl req -in "$CSR_FILE" -noout -verify >/dev/null 2>&1; then
+    echo "Invalid CSR: signature verification failed" >&2
+    exit 1
+fi
+
+# Only the CN is trusted from the submitted CSR; every other DN field
+# (C/ST/L/O/OU/emailAddress) is forced to our own values via -subj below,
+# so a requester can't claim to be a different organization.
+CN=$(openssl req -in "$CSR_FILE" -noout -subject -nameopt multiline 2>/dev/null | sed -n 's/^ *commonName *= //p')
+case "$CN" in
+    \*.*)
+        WILDCARD_REST=${CN#\*.}
+        case "$WILDCARD_REST" in
+            ''|*[!A-Za-z0-9._-]*)
+                echo "Invalid CSR CN '$CN': wildcard must be '*.' followed by letters, digits, '.', '_', '-'" >&2
+                exit 1
+                ;;
+        esac
+        ;;
+    ''|*[!A-Za-z0-9._-]*)
+        echo "Invalid or missing CSR CN '$CN': only letters, digits, '.', '_', '-', or a single leading '*.' wildcard are allowed" >&2
+        exit 1
+        ;;
+esac
+
+DN="/C=$C/ST=$ST/L=$L/O=$O/OU=$OU/CN=$CN/emailAddress=$MAIL"
+echo "-----------------------------"
+echo "Signing external CSR for $CN"
+echo "-----------------------------"
+cd $INTERMEDIATECA_DIRECTORY
+openssl ca -batch -config ../intermediate-openssl.cnf \
+      -extensions $EXTENSION -days ${CERT_DAYS:-3650} -notext -md sha256 \
+      -passin env:INTERMEDIATECA_PASSPHRASE \
+      -subj "$DN" \
+      -in "$CSR_FILE" \
+      -out "certs/$CN.cert.pem"
+chmod 444 "certs/$CN.cert.pem"
+echo "Created Certificate for $CN"
+echo "Verifying Certificate for $CN"
+openssl x509 -noout -text \
+	      -in "certs/$CN.cert.pem"
+openssl verify -CAfile certs/ca-chain.cert.pem \
+	      "certs/$CN.cert.pem"
+echo "Packing Certificate for $CN (no private key -- CSR-based issuance)"
+zip "$OUTPUT_DIRECTORY/$CN.zip" "certs/$CN.cert.pem" certs/ca-chain.cert.pem

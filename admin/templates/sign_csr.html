@@ -1,0 +1,63 @@
+{% extends "base.html" %}
+{% block title %}Sign CSR - LightPKI Admin{% endblock %}
+{% block content %}
+<h2>Sign an External CSR</h2>
+
+{% if step == "confirm" %}
+<p>Review the request before signing. Only the CN below is trusted from
+the CSR -- all other Distinguished Name fields (organization, etc.) are
+replaced with this CA's own values.</p>
+
+<table>
+  <tr><th>CN</th><td>{{ info.cn }}</td></tr>
+  <tr><th>Requested key</th><td>{{ info.key_algo or "unknown" }}</td></tr>
+  <tr><th>Certificate type</th><td>{{ extension }}</td></tr>
+  <tr>
+    <th>Requested SAN entries</th>
+    <td>
+      {% if info.sans %}
+        <ul>{% for san in info.sans %}<li>{{ san }}</li>{% endfor %}</ul>
+        <small>These will be included in the issued certificate as-is -- make sure you recognize every one of them.</small>
+      {% else %}
+        None (the certificate will have no SAN extension other than the CN itself, if applicable).
+      {% endif %}
+    </td>
+  </tr>
+</table>
+
+{% if info.warnings %}
+<ul class="flashes">
+  {% for w in info.warnings %}
+  <li class="flash flash-error">{{ w }}</li>
+  {% endfor %}
+</ul>
+{% endif %}
+
+<form method="post">
+  <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+  <input type="hidden" name="csr_pem" value="{{ csr_pem }}">
+  <input type="hidden" name="extension" value="{{ extension }}">
+  <input type="hidden" name="stage" value="confirm">
+  <button type="submit">Confirm and Sign</button>
+</form>
+<p><a href="{{ url_for('sign_csr_view') }}">Cancel / start over</a></p>
+
+{% else %}
+<form method="post">
+  <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+  <input type="hidden" name="stage" value="preview">
+  <label>Certificate Signing Request (PEM)
+    <textarea name="csr_pem" rows="14" style="width:100%; font-family: ui-monospace, SFMono-Regular, Menlo, monospace;" required>{{ csr_pem or '' }}</textarea>
+  </label>
+  <label>Certificate Type
+    <select name="extension">
+      {% for e in extensions %}
+      <option value="{{ e }}" {% if e == extension %}selected{% endif %}>{{ e }}</option>
+      {% endfor %}
+    </select>
+  </label>
+  <button type="submit">Preview</button>
+</form>
+<p><small>The requester generates their own key and CSR and never shares the private key with this CA -- paste the resulting CSR here to have it signed.</small></p>
+{% endif %}
+{% endblock %}

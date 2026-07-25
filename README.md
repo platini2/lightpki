@@ -18,6 +18,8 @@ directories you control.
 - Multiple Subject Alternative Names per certificate — any mix of DNS names
   (including wildcards) and IPv4/IPv6 addresses; the CN is always included
   as a SAN automatically.
+- Sign externally-generated CSRs — the requester's private key never has
+  to touch this CA.
 - Revocation with automatic CRL regeneration, and a built-in OCSP responder.
 - Optional web admin UI: dashboard, issue/revoke/renew certificates, view and
   download the CRL, expiry alerting via webhook — all without `docker exec`.
@@ -127,6 +129,30 @@ in `OUTPUT_DIRECTORY`.
 Certificate validity defaults to 3650 days; override with the `CERT_DAYS`
 environment variable.
 
+## Signing an externally-generated CSR
+
+If the requester generates their own key and CSR (so the private key never
+touches this CA), sign it directly instead:
+
+```
+sign_csr <CSR_FILE> <extension>
+```
+
+Only the CN is trusted from the submitted CSR — every other DN field
+(organization, etc.) is replaced with this CA's own values, and
+`basicConstraints`/`keyUsage`/`extendedKeyUsage` always come from the
+`extension` type regardless of what the CSR requests (a CSR asking for
+`CA:TRUE` or `keyCertSign` is signed anyway, just with those requests
+silently ignored). SAN entries the CSR itself requests **are** copied
+into the issued certificate as-is — review them before signing.
+
+The admin UI's **Sign CSR** page does this review for you: paste a CSR,
+and it shows the extracted CN, requested SAN entries, key type, and any
+suspicious requested extensions before you confirm and sign.
+
+No private key is generated or stored by this CA for CSR-signed
+certificates, so their zip bundle contains only the cert and chain.
+
 ## Revoking certificates
 
 ```
@@ -166,6 +192,10 @@ without `docker exec`:
 - **Issue** — a form for CN (including wildcards), OU, certificate type, key
   type (RSA or ECDSA), and additional SAN entries (comma-separated
   hostnames/IPs, auto-classified).
+- **Sign CSR** — paste an externally-generated CSR; shows the extracted CN,
+  requested SAN entries, key type, and any suspicious requested extensions
+  (`CA:TRUE`, `keyCertSign` — always ignored regardless) for review before
+  you confirm and sign. No private key ever touches this CA for these.
 - **Revoke** — one click; automatically regenerates the CRL afterwards.
 - **Renew** — one click on any non-revoked certificate: reads the *existing*
   certificate's extension type, key algorithm/size, and SAN entries back out

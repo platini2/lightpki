@@ -6,6 +6,7 @@ import re
 import secrets
 import subprocess
 import sys
+import tempfile
 import threading
 import time
 import urllib.request
@@ -308,6 +309,76 @@ def _cert_expired(details):
     return end.replace(tzinfo=timezone.utc) < datetime.now(timezone.utc)
 
 
+def parse_csr(csr_pem):
+    """Validate a submitted CSR and extract what we're willing to trust
+    from it (the CN) plus what it's requesting for display/review (SAN
+    entries, key type, anything unusual) -- returns (info, error)."""
+    if not csr_pem.strip():
+        return None, "No CSR was submitted."
+
+    fd, tmp_path = tempfile.mkstemp(suffix=".csr.pem")
+    try:
+        with os.fdopen(fd, "w") as f:
+            f.write(csr_pem)
+
+        verify = subprocess.run(
+            ["openssl", "req", "-in", tmp_path, "-noout", "-verify"],
+            capture_output=True,
+            text=True,
+        )
+        if verify.returncode != 0:
+            return None, "Invalid CSR: signature verification failed."
+
+        subject_proc = subprocess.run(
+            ["openssl", "req", "-in", tmp_path, "-noout", "-subject", "-nameopt", "multiline"],
+            capture_output=True,
+            text=True,
+        )
+        cn = None
+        for line in subject_proc.stdout.splitlines():
+            line = line.strip()
+            if line.startswith("commonName"):
+                cn = line.split("=", 1)[1].strip()
+
+        if not cn or not CN_RE.match(cn):
+            return None, f"CSR has an invalid or missing CN ({cn!r})."
+
+        text_proc = subprocess.run(
+            ["openssl", "req", "-in", tmp_path, "-noout", "-text"],
+            capture_output=True,
+            text=True,
+        )
+        text = text_proc.stdout
+
+        sans = []
+        m = re.search(r"X509v3 Subject Alternative Name:\s*\n\s*(.+)", text)
+        if m:
+            for part in m.group(1).split(","):
+                part = part.strip()
+                if part:
+                    sans.append(part.replace("IP Address:", "IP:"))
+
+        warnings = []
+        if re.search(r"Basic Constraints:.*?\n\s*CA:TRUE", text):
+            warnings.append(
+                "Requests CA:TRUE -- ignored; issued certificates are always CA:FALSE."
+            )
+        if re.search(r"Key Usage:.*?\n\s*.*Certificate Sign", text):
+            warnings.append("Requests keyCertSign -- ignored.")
+
+        key_algo = None
+        if "id-ecPublicKey" in text:
+            km = re.search(r"ASN1 OID:\s*(\S+)", text)
+            key_algo = f"ECDSA ({km.group(1)})" if km else "ECDSA"
+        elif "rsaEncryption" in text:
+            km = re.search(r"Public-Key:\s*\((\d+)\s*bit\)", text)
+            key_algo = f"RSA {km.group(1)}-bit" if km else "RSA"
+
+        return {"cn": cn, "sans": sans, "warnings": warnings, "key_algo": key_algo}, None
+    finally:
+        os.remove(tmp_path)
+
+
 def _expiry_notified_path():
     return os.path.join(os.environ.get("INTERMEDIATECA_DIRECTORY", ""), ".expiry_notified")
 
@@ -559,6 +630,62 @@ def issue():
         )
 
     flash(f"Certificate issued for {cn}.", "success")
+    return redirect(url_for("dashboard"))
+
+
+@app.route("/sign_csr", methods=["GET", "POST"])
+def sign_csr_view():
+    if request.method == "GET":
+        return render_template("sign_csr.html", extensions=EXTENSIONS, step="paste")
+
+    check_csrf()
+
+    csr_pem = request.form.get("csr_pem", "")
+    extension = request.form.get("extension", "")
+    stage = request.form.get("stage", "preview")
+
+    if extension not in EXTENSIONS:
+        flash("Invalid certificate type.", "error")
+        return render_template(
+            "sign_csr.html", extensions=EXTENSIONS, step="paste", csr_pem=csr_pem, extension=extension
+        )
+
+    info, error = parse_csr(csr_pem)
+    if error:
+        flash(error, "error")
+        return render_template(
+            "sign_csr.html", extensions=EXTENSIONS, step="paste", csr_pem=csr_pem, extension=extension
+        )
+
+    if stage != "confirm":
+        return render_template(
+            "sign_csr.html",
+            extensions=EXTENSIONS,
+            step="confirm",
+            csr_pem=csr_pem,
+            extension=extension,
+            info=info,
+        )
+
+    intermediate_dir = os.environ.get("INTERMEDIATECA_DIRECTORY", "")
+    csr_path = os.path.join(intermediate_dir, "csr", f"{info['cn']}.csr.pem")
+    try:
+        with open(csr_path, "w") as f:
+            f.write(csr_pem)
+    except OSError as exc:
+        flash(f"Could not write the submitted CSR to disk: {exc}", "error")
+        return render_template(
+            "sign_csr.html", extensions=EXTENSIONS, step="paste", csr_pem=csr_pem, extension=extension
+        )
+
+    result = run_script("sign_csr", [csr_path, extension])
+    if result.returncode != 0:
+        flash(f"sign_csr failed:\n{result.stdout}\n{result.stderr}", "error")
+        return render_template(
+            "sign_csr.html", extensions=EXTENSIONS, step="paste", csr_pem=csr_pem, extension=extension
+        )
+
+    flash(f"Certificate issued for {info['cn']} from the submitted CSR.", "success")
     return redirect(url_for("dashboard"))
 
 
