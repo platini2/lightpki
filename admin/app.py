@@ -1,9 +1,14 @@
 import hmac
 import ipaddress
+import json
 import os
 import re
 import secrets
 import subprocess
+import sys
+import threading
+import time
+import urllib.request
 from datetime import datetime, timezone
 
 from flask import (
@@ -40,6 +45,10 @@ KEY_SPECS = {
     "secp384r1": "ECDSA P-384 (secp384r1)",
     "secp521r1": "ECDSA P-521 (secp521r1)",
 }
+
+EXPIRY_WARNING_DAYS = int(os.environ.get("EXPIRY_WARNING_DAYS", "30"))
+EXPIRY_WEBHOOK_URL = os.environ.get("EXPIRY_WEBHOOK_URL", "")
+EXPIRY_CHECK_INTERVAL_HOURS = float(os.environ.get("EXPIRY_CHECK_INTERVAL_HOURS", "24"))
 
 app = Flask(__name__)
 app.secret_key = os.environ.get("ADMIN_SECRET_KEY") or secrets.token_hex(32)
@@ -149,6 +158,114 @@ def ca_summary():
     return {"root": ca_info(root_cert), "intermediate": ca_info(intermediate_cert)}
 
 
+def inspect_cert(cert_path):
+    """Read back the extension type / key spec / SAN IP of an existing
+    cert, so a renewal can reissue with the same shape without the
+    caller having to remember or re-supply them."""
+    if not os.path.isfile(cert_path):
+        return None
+    proc = subprocess.run(
+        ["openssl", "x509", "-in", cert_path, "-noout", "-text"],
+        capture_output=True,
+        text=True,
+    )
+    if proc.returncode != 0:
+        return None
+    text = proc.stdout
+
+    if "OCSP Signing" in text:
+        extension = "ocsp"
+    elif "TLS Web Server Authentication" in text:
+        extension = "server_cert"
+    elif "TLS Web Client Authentication" in text or "E-mail Protection" in text:
+        extension = "usr_cert"
+    else:
+        extension = None
+
+    key_spec = None
+    m = re.search(r"ASN1 OID:\s*(\S+)", text)
+    if m and m.group(1) in KEY_SPECS:
+        key_spec = m.group(1)
+    if key_spec is None:
+        m = re.search(r"Public-Key:\s*\((\d+)\s*bit\)", text)
+        if m and m.group(1) in KEY_SPECS:
+            key_spec = m.group(1)
+
+    san_ip = None
+    m = re.search(r"IP Address:([0-9A-Fa-f:.]+)", text)
+    if m:
+        san_ip = m.group(1)
+
+    return {"extension": extension, "key_spec": key_spec, "san_ip": san_ip}
+
+
+def _expiry_notified_path():
+    return os.path.join(os.environ.get("INTERMEDIATECA_DIRECTORY", ""), ".expiry_notified")
+
+
+def _load_notified_serials():
+    path = _expiry_notified_path()
+    if not os.path.isfile(path):
+        return set()
+    with open(path) as f:
+        return {line.strip() for line in f if line.strip()}
+
+
+def _mark_notified(serial):
+    with open(_expiry_notified_path(), "a") as f:
+        f.write(serial + "\n")
+
+
+def _send_expiry_webhook(entry):
+    payload = json.dumps(
+        {
+            "cn": entry["cn"],
+            "ou": entry["ou"],
+            "serial": entry["serial"],
+            "expiry": entry["expiry"],
+            "days_remaining": entry["days_remaining"],
+            "message": (
+                f"LightPKI: certificate for {entry['cn']} expires in "
+                f"{entry['days_remaining']} day(s) ({entry['expiry']})."
+            ),
+        }
+    ).encode()
+    req = urllib.request.Request(
+        EXPIRY_WEBHOOK_URL, data=payload, headers={"Content-Type": "application/json"}
+    )
+    urllib.request.urlopen(req, timeout=10)
+
+
+def check_expiring_certificates():
+    if not EXPIRY_WEBHOOK_URL:
+        return
+    notified = _load_notified_serials()
+    for entry in load_certificates():
+        if entry["status"] != "Expiring Soon":
+            continue
+        if entry["serial"] in notified:
+            continue
+        try:
+            _send_expiry_webhook(entry)
+            _mark_notified(entry["serial"])
+        except Exception as exc:
+            print(f"lightpki admin: expiry webhook failed for {entry['cn']}: {exc}", file=sys.stderr)
+
+
+def _expiry_alert_loop():
+    while True:
+        try:
+            check_expiring_certificates()
+        except Exception as exc:
+            print(f"lightpki admin: expiry check failed: {exc}", file=sys.stderr)
+        time.sleep(EXPIRY_CHECK_INTERVAL_HOURS * 3600)
+
+
+def start_expiry_alert_thread():
+    if EXPIRY_WEBHOOK_URL:
+        threading.Thread(target=_expiry_alert_loop, daemon=True).start()
+
+
 def parse_dn(dn):
     fields = {}
     for part in dn.split("/"):
@@ -187,10 +304,16 @@ def load_certificates():
             except ValueError:
                 expiry = None
 
+            days_remaining = (expiry - now).days if expiry is not None else None
+
             if status_flag == "R":
                 status = "Revoked"
-            elif expiry is not None and expiry < now:
+            elif expiry is None:
+                status = "Valid"
+            elif expiry < now:
                 status = "Expired"
+            elif days_remaining is not None and days_remaining <= EXPIRY_WARNING_DAYS:
+                status = "Expiring Soon"
             else:
                 status = "Valid"
 
@@ -210,6 +333,8 @@ def load_certificates():
                     "expiry": expiry.strftime("%Y-%m-%d %H:%M UTC")
                     if expiry
                     else expiry_raw,
+                    "expiry_dt": expiry,
+                    "days_remaining": days_remaining,
                     "revoked_at": revoke_raw or None,
                     "bundle": bundle,
                 }
@@ -319,6 +444,90 @@ def revoke(serial):
     return redirect(url_for("dashboard"))
 
 
+@app.route("/renew/<serial>", methods=["POST"])
+def renew(serial):
+    check_csrf()
+
+    if not SERIAL_RE.match(serial):
+        abort(400)
+
+    entries = load_certificates()
+    match = next((e for e in entries if e["serial"] == serial), None)
+    if match is None:
+        abort(404)
+    if match["status"] == "Revoked":
+        flash(f"{match['cn']} is revoked; issue a new certificate instead of renewing.", "error")
+        return redirect(url_for("dashboard"))
+
+    cn = match["cn"]
+    ou = match["ou"]
+    if not CN_RE.match(cn) or not OU_RE.match(ou):
+        abort(400)
+
+    intermediate_dir = os.environ.get("INTERMEDIATECA_DIRECTORY", "")
+    cert_path = os.path.join(intermediate_dir, "certs", f"{cn}.cert.pem")
+    info = inspect_cert(cert_path)
+    if info is None or info["extension"] is None or info["key_spec"] is None:
+        flash(
+            f"Could not determine the certificate type/key of the existing certificate "
+            f"for {cn}; issue a new certificate manually instead.",
+            "error",
+        )
+        return redirect(url_for("dashboard"))
+
+    revoke_result = run_script("revoke_cert", [cn])
+    if revoke_result.returncode != 0:
+        flash(
+            f"Renewal failed while revoking the existing certificate for {cn}:\n"
+            f"{revoke_result.stdout}\n{revoke_result.stderr}",
+            "error",
+        )
+        return redirect(url_for("dashboard"))
+
+    crl_result = run_script("generate_crl", [])
+    if crl_result.returncode != 0:
+        flash(
+            f"Existing certificate for {cn} revoked, but CRL regeneration failed:\n"
+            f"{crl_result.stdout}\n{crl_result.stderr}",
+            "error",
+        )
+        return redirect(url_for("dashboard"))
+
+    # The old key/cert are chmod 400/444 (read-only); issue_key_cert can't
+    # overwrite them via genrsa/openssl ca's -out, so remove them now that
+    # they're revoked and no longer needed.
+    key_path = os.path.join(intermediate_dir, "private", f"{cn}.key.pem")
+    try:
+        if os.path.isfile(cert_path):
+            os.remove(cert_path)
+        if os.path.isfile(key_path):
+            os.remove(key_path)
+    except OSError as exc:
+        flash(
+            f"Existing certificate for {cn} was revoked, but the old key/cert files "
+            f"could not be removed before reissuing: {exc}",
+            "error",
+        )
+        return redirect(url_for("dashboard"))
+
+    issue_args = [cn, ou, info["extension"], info["key_spec"]]
+    if info["san_ip"]:
+        issue_args.append(info["san_ip"])
+
+    issue_result = run_script("issue_key_cert", issue_args)
+    if issue_result.returncode != 0:
+        flash(
+            f"The existing certificate for {cn} was revoked, but reissuing a new one "
+            f"failed:\n{issue_result.stdout}\n{issue_result.stderr}\n"
+            "Issue a new certificate manually via the Issue Certificate form.",
+            "error",
+        )
+        return redirect(url_for("dashboard"))
+
+    flash(f"Renewed {cn}: new certificate issued, previous one revoked and added to the CRL.", "success")
+    return redirect(url_for("dashboard"))
+
+
 @app.route("/crl")
 def crl():
     intermediate_dir = os.environ.get("INTERMEDIATECA_DIRECTORY", "")
@@ -357,6 +566,7 @@ def download(filename):
 
 def main():
     port = int(os.environ.get("ADMIN_PORT", "8080"))
+    start_expiry_alert_thread()
     from waitress import serve
 
     serve(app, host="0.0.0.0", port=port)

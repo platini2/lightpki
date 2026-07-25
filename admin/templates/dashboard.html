@@ -30,7 +30,7 @@
       <td>{{ c.cn }}</td>
       <td>{{ c.ou }}</td>
       <td>{{ c.serial }}</td>
-      <td><span class="status status-{{ c.status|lower }}">{{ c.status }}</span></td>
+      <td><span class="status status-{{ c.status|lower|replace(' ', '-') }}">{{ c.status }}</span></td>
       <td>{{ c.expiry }}</td>
       <td>{{ c.revoked_at or "-" }}</td>
       <td>
@@ -41,10 +41,16 @@
         {% endif %}
       </td>
       <td>
-        {% if c.status == "Valid" %}
-        <form method="post" action="{{ url_for('revoke', serial=c.serial) }}" onsubmit="return confirm('Revoke certificate for {{ c.cn }}?');">
+        {% if c.status in ["Valid", "Expiring Soon"] %}
+        <form class="inline-form" method="post" action="{{ url_for('revoke', serial=c.serial) }}" onsubmit="return confirm('Revoke certificate for {{ c.cn }}?');">
           <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
           <button type="submit">Revoke</button>
+        </form>
+        {% endif %}
+        {% if c.status != "Revoked" %}
+        <form class="inline-form" method="post" action="{{ url_for('renew', serial=c.serial) }}" onsubmit="return confirm('Renew certificate for {{ c.cn }}? The current one will be revoked and a new one issued.');">
+          <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+          <button type="submit">Renew</button>
         </form>
         {% endif %}
       </td>

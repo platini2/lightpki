@@ -34,6 +34,9 @@ sudo docker run -d --name=lightpki \
   -e ADMIN_PORT=8080 \
   -e ADMIN_USERNAME=admin \
   -e ADMIN_PASSWORD=CHANGE_ME \
+  -e EXPIRY_WARNING_DAYS=30 \
+  -e EXPIRY_WEBHOOK_URL=https://your-webhook-endpoint \
+  -e EXPIRY_CHECK_INTERVAL_HOURS=24 \
 --restart=unless-stopped \
 lightpki
 
@@ -58,6 +61,18 @@ revoke certificates, and view/download the CRL, without needing
 docker exec. Always set ADMIN_PASSWORD to something other than the
 default before exposing this port. Put it behind a TLS-terminating
 reverse proxy for anything beyond local/trusted-network use.
+
+Each issued-certificate row also has a Renew button (when not
+revoked): it revokes the current certificate, regenerates the CRL,
+and issues a fresh one with the same CN/OU/extension/key type/SAN IP,
+detected from the existing certificate.
+
+If EXPIRY_WEBHOOK_URL is set, certificates within EXPIRY_WARNING_DAYS
+(default 30) of expiring show as "Expiring Soon" on the dashboard, and
+a background check (every EXPIRY_CHECK_INTERVAL_HOURS, default 24,
+plus once immediately at startup) POSTs a JSON payload
+({cn, ou, serial, expiry, days_remaining, message}) to that URL once
+per certificate the first time it crosses the threshold.
 
 Running standalone
 Edit .env for proper configuration

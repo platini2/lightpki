@@ -66,3 +66,6 @@ input, select {
 .status-valid { color: #14591d; font-weight: 600; }
 .status-revoked { color: #7a1e26; font-weight: 600; }
 .status-expired { color: #8a6d3b; font-weight: 600; }
+.status-expiring-soon { color: #b45309; font-weight: 600; }
+
+.inline-form { display: inline-block; margin-right: 0.4rem; }
