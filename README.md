@@ -241,6 +241,7 @@ reverse proxy for anything beyond local/trusted-network use.
 | `ROOTCA_DIRECTORY` / `INTERMEDIATECA_DIRECTORY` | — | Where each CA's keys/certs/database live. |
 | `ROOTCA_PASSPHRASE` / `INTERMEDIATECA_PASSPHRASE` | — | Passphrases encrypting each CA's private key. Required (non-empty) or the corresponding `create_*_ca` script refuses to run. |
 | `ROOTCA_KEY_SPEC` / `INTERMEDIATECA_KEY_SPEC` | `4096` | RSA key length or EC curve name (`prime256v1`, `secp384r1`, `secp521r1`) for each CA's own key. Independent per CA -- an EC root can sign an RSA intermediate and vice versa. |
+| `ROOTCA_DAYS` / `INTERMEDIATECA_DAYS` | `3650` | Validity period (days) for the root/intermediate CA certs themselves. |
 | `OUTPUT_DIRECTORY` | — | Where issued cert/key/chain zip bundles are written. |
 | `C`, `ST`, `L`, `O`, `OU`, `MAIL` | — | Distinguished Name fields shared by both CAs. |
 | `ROOTCN` / `INTERMEDIATECN` | — | Common Names for the root/intermediate CA certs. |
