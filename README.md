@@ -156,12 +156,13 @@ without `docker exec`:
 - **Dashboard** — root/intermediate CA subject and expiry, and a table of
   every issued certificate with its status (Valid / Expiring Soon / Expired /
   Revoked), serial, expiry, and a download link for its zip bundle.
-- **View** — click any certificate's CN (or its View link) for a
-  friendly decoded page: subject, issuer, validity dates, key
-  algorithm/size, signature algorithm, SHA-256 fingerprint, key
-  usage/extended key usage, Authority Info Access, and the full SAN
-  list — plus the raw `openssl x509 -text` output in a collapsible
-  section for anyone who wants it.
+- **View** — a View button on every issued certificate (or click its CN)
+  and on the root/intermediate CA rows opens a friendly decoded page:
+  subject, issuer, validity dates, key algorithm/size, signature
+  algorithm, SHA-256 fingerprint, key usage/extended key usage,
+  Authority Info Access, and the full SAN list — plus the raw
+  `openssl x509 -text` output in a collapsible section for anyone who
+  wants it.
 - **Issue** — a form for CN (including wildcards), OU, certificate type, key
   type (RSA or ECDSA), and additional SAN entries (comma-separated
   hostnames/IPs, auto-classified).

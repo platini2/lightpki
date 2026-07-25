@@ -297,6 +297,17 @@ def describe_cert(cert_path):
     }
 
 
+def _cert_expired(details):
+    not_after = details.get("not_after") if details else None
+    if not not_after:
+        return False
+    try:
+        end = datetime.strptime(not_after.replace(" GMT", ""), "%b %d %H:%M:%S %Y")
+    except ValueError:
+        return False
+    return end.replace(tzinfo=timezone.utc) < datetime.now(timezone.utc)
+
+
 def _expiry_notified_path():
     return os.path.join(os.environ.get("INTERMEDIATECA_DIRECTORY", ""), ".expiry_notified")
 
@@ -468,6 +479,35 @@ def view_cert(serial):
         return redirect(url_for("dashboard"))
 
     return render_template("cert_view.html", entry=match, details=details)
+
+
+@app.route("/ca/<which>")
+def view_ca(which):
+    if which == "root":
+        cert_path = os.path.join(os.environ.get("ROOTCA_DIRECTORY", ""), "certs", "ca.cert.pem")
+        label = "Root CA"
+    elif which == "intermediate":
+        cert_path = os.path.join(
+            os.environ.get("INTERMEDIATECA_DIRECTORY", ""), "certs", "intermediate.cert.pem"
+        )
+        label = "Intermediate CA"
+    else:
+        abort(404)
+
+    details = describe_cert(cert_path)
+    if details is None:
+        flash(f"Could not read the {label} certificate.", "error")
+        return redirect(url_for("dashboard"))
+
+    entry = {
+        "cn": label,
+        "ou": "",
+        "serial": details.get("serial") or "-",
+        "status": "Expired" if _cert_expired(details) else "Valid",
+        "revoked_at": None,
+        "bundle": None,
+    }
+    return render_template("cert_view.html", entry=entry, details=details)
 
 
 @app.route("/issue", methods=["GET", "POST"])
