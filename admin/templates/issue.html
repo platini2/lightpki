@@ -17,10 +17,10 @@
       {% endfor %}
     </select>
   </label>
-  <label>Key Length
-    <select name="key_length">
-      {% for k in key_lengths %}
-      <option value="{{ k }}" {% if k == key_length %}selected{% endif %}>{{ k }}</option>
+  <label>Key Type
+    <select name="key_spec">
+      {% for value, label in key_specs.items() %}
+      <option value="{{ value }}" {% if value == key_spec %}selected{% endif %}>{{ label }}</option>
       {% endfor %}
     </select>
   </label>

@@ -33,7 +33,13 @@ OU_RE = re.compile(r"^[A-Za-z0-9 ._-]+$")
 SERIAL_RE = re.compile(r"^[0-9A-Fa-f]+$")
 BUNDLE_RE = re.compile(r"^[A-Za-z0-9._-]+\.zip$")
 EXTENSIONS = ("server_cert", "usr_cert", "ocsp")
-KEY_LENGTHS = ("2048", "4096")
+KEY_SPECS = {
+    "2048": "RSA 2048",
+    "4096": "RSA 4096",
+    "prime256v1": "ECDSA P-256 (prime256v1)",
+    "secp384r1": "ECDSA P-384 (secp384r1)",
+    "secp521r1": "ECDSA P-521 (secp521r1)",
+}
 
 app = Flask(__name__)
 app.secret_key = os.environ.get("ADMIN_SECRET_KEY") or secrets.token_hex(32)
@@ -224,17 +230,17 @@ def dashboard():
 @app.route("/issue", methods=["GET", "POST"])
 def issue():
     if request.method == "GET":
-        return render_template("issue.html", extensions=EXTENSIONS, key_lengths=KEY_LENGTHS)
+        return render_template("issue.html", extensions=EXTENSIONS, key_specs=KEY_SPECS)
 
     check_csrf()
 
     cn = request.form.get("cn", "").strip()
     ou = request.form.get("ou", "").strip()
     extension = request.form.get("extension", "")
-    key_length = request.form.get("key_length", "")
+    key_spec = request.form.get("key_spec", "")
     san_ip = request.form.get("san_ip", "").strip()
 
-    form_state = dict(cn=cn, ou=ou, extension=extension, key_length=key_length, san_ip=san_ip)
+    form_state = dict(cn=cn, ou=ou, extension=extension, key_spec=key_spec, san_ip=san_ip)
 
     errors = []
     if not CN_RE.match(cn):
@@ -243,8 +249,8 @@ def issue():
         errors.append('OU must contain only letters, digits, spaces, ".", "_", "-".')
     if extension not in EXTENSIONS:
         errors.append("Invalid certificate type.")
-    if key_length not in KEY_LENGTHS:
-        errors.append("Invalid key length.")
+    if key_spec not in KEY_SPECS:
+        errors.append("Invalid key type.")
     if san_ip:
         try:
             ipaddress.ip_address(san_ip)
@@ -255,10 +261,10 @@ def issue():
         for e in errors:
             flash(e, "error")
         return render_template(
-            "issue.html", extensions=EXTENSIONS, key_lengths=KEY_LENGTHS, **form_state
+            "issue.html", extensions=EXTENSIONS, key_specs=KEY_SPECS, **form_state
         )
 
-    args = [cn, ou, extension, key_length]
+    args = [cn, ou, extension, key_spec]
     if san_ip:
         args.append(san_ip)
 
@@ -266,7 +272,7 @@ def issue():
     if result.returncode != 0:
         flash(f"issue_key_cert failed:\n{result.stdout}\n{result.stderr}", "error")
         return render_template(
-            "issue.html", extensions=EXTENSIONS, key_lengths=KEY_LENGTHS, **form_state
+            "issue.html", extensions=EXTENSIONS, key_specs=KEY_SPECS, **form_state
         )
 
     flash(f"Certificate issued for {cn}.", "success")

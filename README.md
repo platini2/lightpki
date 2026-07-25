@@ -40,6 +40,10 @@ lightpki
 To issue a certificate  
 docker exec -it lightpki ./issue_key_cert ftp.example.com "FTP Server" server_cert 2048
 
+The 4th argument accepts an RSA key length (2048, 4096) or an EC curve
+name (prime256v1, secp384r1, secp521r1), e.g.
+docker exec -it lightpki ./issue_key_cert ftp.example.com "FTP Server" server_cert prime256v1
+
 To revoke a certificate 
 docker exec -it lightpki ./revoke_cert ftp.example.com
 

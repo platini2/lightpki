@@ -2,9 +2,11 @@
 set -e
 umask 077
 if [ $# -lt 4 ] ; then
-    echo 'issue_key_cert <CN> <OU> <extension> <key_length>'
-    echo '<extension> - server_cert / usr_cert'
-    echo 'issue_key_cert ftp.example.com "FTP Server" server_cert 2048'        
+    echo 'issue_key_cert <CN> <OU> <extension> <key_spec> [SAN_IP]'
+    echo '<extension> - server_cert / usr_cert / ocsp'
+    echo '<key_spec>  - RSA key length (2048, 4096) or EC curve name (prime256v1, secp384r1, secp521r1)'
+    echo 'issue_key_cert ftp.example.com "FTP Server" server_cert 2048'
+    echo 'issue_key_cert ftp.example.com "FTP Server" server_cert prime256v1'
     exit 1
 fi
 CN=$1
@@ -20,8 +22,18 @@ echo "-----------------------------"
 echo "Issuing Intermediate CA Certificate for $1"
 echo "-----------------------------"
 cd $INTERMEDIATECA_DIRECTORY
-openssl genrsa \
-      -out private/$1.key.pem $4
+case "$4" in
+    ''|*[!0-9]*)
+        if ! openssl ecparam -name "$4" -noout >/dev/null 2>&1; then
+            echo "Invalid key spec '$4': must be an RSA key length (e.g. 2048, 4096) or a known EC curve name (e.g. prime256v1, secp384r1, secp521r1)" >&2
+            exit 1
+        fi
+        openssl ecparam -name "$4" -genkey -noout -out private/$1.key.pem
+        ;;
+    *)
+        openssl genrsa -out private/$1.key.pem $4
+        ;;
+esac
 chmod 400 private/$1.key.pem
 echo "Created Key for $1"
 if [ $# -eq 4 ] ; then
