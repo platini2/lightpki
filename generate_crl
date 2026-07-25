@@ -8,5 +8,5 @@ cd $INTERMEDIATECA_DIRECTORY
 openssl ca -config ../intermediate-openssl.cnf \
       -passin env:INTERMEDIATECA_PASSPHRASE \
       -gencrl -out crl/intermediate.crl.pem
-chmod 444 crl/intermediate.crl.pem
+chmod 644 crl/intermediate.crl.pem
 echo "Created Intermediate Certificate CRL"
