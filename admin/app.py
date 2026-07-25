@@ -50,6 +50,30 @@ EXPIRY_WARNING_DAYS = int(os.environ.get("EXPIRY_WARNING_DAYS", "30"))
 EXPIRY_WEBHOOK_URL = os.environ.get("EXPIRY_WEBHOOK_URL", "")
 EXPIRY_CHECK_INTERVAL_HOURS = float(os.environ.get("EXPIRY_CHECK_INTERVAL_HOURS", "24"))
 
+
+def parse_san_entries(raw):
+    """Turn a user-supplied comma-separated list of hostnames/IPs into
+    the DNS:/IP:-tagged entries issue_key_cert's SAN_LIST expects,
+    classifying each one automatically."""
+    entries = []
+    errors = []
+    for part in raw.split(","):
+        part = part.strip()
+        if not part:
+            continue
+        try:
+            ipaddress.ip_address(part)
+            entries.append(f"IP:{part}")
+            continue
+        except ValueError:
+            pass
+        if CN_RE.match(part):
+            entries.append(f"DNS:{part}")
+        else:
+            errors.append(f"'{part}' is not a valid hostname or IP address.")
+    return entries, errors
+
+
 app = Flask(__name__)
 app.secret_key = os.environ.get("ADMIN_SECRET_KEY") or secrets.token_hex(32)
 
@@ -158,10 +182,10 @@ def ca_summary():
     return {"root": ca_info(root_cert), "intermediate": ca_info(intermediate_cert)}
 
 
-def inspect_cert(cert_path):
-    """Read back the extension type / key spec / SAN IP of an existing
-    cert, so a renewal can reissue with the same shape without the
-    caller having to remember or re-supply them."""
+def inspect_cert(cert_path, cn):
+    """Read back the extension type / key spec / extra SAN entries of an
+    existing cert, so a renewal can reissue with the same shape without
+    the caller having to remember or re-supply them."""
     if not os.path.isfile(cert_path):
         return None
     proc = subprocess.run(
@@ -191,12 +215,21 @@ def inspect_cert(cert_path):
         if m and m.group(1) in KEY_SPECS:
             key_spec = m.group(1)
 
-    san_ip = None
-    m = re.search(r"IP Address:([0-9A-Fa-f:.]+)", text)
+    extra_sans = []
+    m = re.search(r"X509v3 Subject Alternative Name:\s*\n\s*(.+)", text)
     if m:
-        san_ip = m.group(1)
+        for part in m.group(1).split(","):
+            part = part.strip()
+            if part.startswith("IP Address:"):
+                entry = "IP:" + part[len("IP Address:") :]
+            elif part.startswith("DNS:"):
+                entry = part
+            else:
+                continue
+            if entry != f"DNS:{cn}":
+                extra_sans.append(entry)
 
-    return {"extension": extension, "key_spec": key_spec, "san_ip": san_ip}
+    return {"extension": extension, "key_spec": key_spec, "extra_sans": extra_sans}
 
 
 def _expiry_notified_path():
@@ -363,9 +396,9 @@ def issue():
     ou = request.form.get("ou", "").strip()
     extension = request.form.get("extension", "")
     key_spec = request.form.get("key_spec", "")
-    san_ip = request.form.get("san_ip", "").strip()
+    sans = request.form.get("sans", "").strip()
 
-    form_state = dict(cn=cn, ou=ou, extension=extension, key_spec=key_spec, san_ip=san_ip)
+    form_state = dict(cn=cn, ou=ou, extension=extension, key_spec=key_spec, sans=sans)
 
     errors = []
     if not CN_RE.match(cn):
@@ -379,11 +412,8 @@ def issue():
         errors.append("Invalid certificate type.")
     if key_spec not in KEY_SPECS:
         errors.append("Invalid key type.")
-    if san_ip:
-        try:
-            ipaddress.ip_address(san_ip)
-        except ValueError:
-            errors.append("SAN IP is not a valid IPv4/IPv6 address.")
+    san_entries, san_errors = parse_san_entries(sans)
+    errors.extend(san_errors)
 
     if errors:
         for e in errors:
@@ -393,8 +423,8 @@ def issue():
         )
 
     args = [cn, ou, extension, key_spec]
-    if san_ip:
-        args.append(san_ip)
+    if san_entries:
+        args.append(",".join(san_entries))
 
     result = run_script("issue_key_cert", args)
     if result.returncode != 0:
@@ -466,7 +496,7 @@ def renew(serial):
 
     intermediate_dir = os.environ.get("INTERMEDIATECA_DIRECTORY", "")
     cert_path = os.path.join(intermediate_dir, "certs", f"{cn}.cert.pem")
-    info = inspect_cert(cert_path)
+    info = inspect_cert(cert_path, cn)
     if info is None or info["extension"] is None or info["key_spec"] is None:
         flash(
             f"Could not determine the certificate type/key of the existing certificate "
@@ -511,8 +541,8 @@ def renew(serial):
         return redirect(url_for("dashboard"))
 
     issue_args = [cn, ou, info["extension"], info["key_spec"]]
-    if info["san_ip"]:
-        issue_args.append(info["san_ip"])
+    if info["extra_sans"]:
+        issue_args.append(",".join(info["extra_sans"]))
 
     issue_result = run_script("issue_key_cert", issue_args)
     if issue_result.returncode != 0:

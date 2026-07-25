@@ -2,11 +2,14 @@
 set -e
 umask 077
 if [ $# -lt 4 ] ; then
-    echo 'issue_key_cert <CN> <OU> <extension> <key_spec> [SAN_IP]'
+    echo 'issue_key_cert <CN> <OU> <extension> <key_spec> [SAN_LIST]'
     echo '<extension> - server_cert / usr_cert / ocsp'
     echo '<key_spec>  - RSA key length (2048, 4096) or EC curve name (prime256v1, secp384r1, secp521r1)'
+    echo '<SAN_LIST>  - optional comma-separated extra SAN entries as DNS:name or IP:address'
+    echo '              (CN is always included as a SAN automatically)'
     echo 'issue_key_cert ftp.example.com "FTP Server" server_cert 2048'
     echo 'issue_key_cert ftp.example.com "FTP Server" server_cert prime256v1'
+    echo 'issue_key_cert www.example.com "Web Service" server_cert 2048 "DNS:example.com,IP:10.0.0.5"'
     exit 1
 fi
 CN=$1
@@ -45,22 +48,37 @@ case "$4" in
 esac
 chmod 400 "private/$1.key.pem"
 echo "Created Key for $1"
-if [ $# -eq 4 ] ; then
-    openssl req -config ../intermediate-openssl.cnf \
-      -key "private/$1.key.pem" \
-      -new -sha256\
-      -out "csr/$1.csr.pem" \
-      -subj "$DN"
+SAN="DNS:$CN"
+if [ $# -ge 5 ] ; then
+    SAN_LIST=$5
+    case "$SAN_LIST" in
+        *[!A-Za-z0-9:.,_*-]*)
+            echo "Invalid SAN list '$SAN_LIST': use comma-separated DNS:name or IP:address entries" >&2
+            exit 1
+            ;;
+    esac
+    OLDIFS=$IFS
+    IFS=,
+    for entry in $SAN_LIST; do
+        case "$entry" in
+            DNS:?*|IP:?*)
+                ;;
+            *)
+                IFS=$OLDIFS
+                echo "Invalid SAN entry '$entry': each entry must start with DNS: or IP:" >&2
+                exit 1
+                ;;
+        esac
+        SAN="$SAN,$entry"
+    done
+    IFS=$OLDIFS
 fi
-if [ $# -eq 5 ] ; then
-    SAN=DNS:$CN,IP:$5
-    openssl req -config ../intermediate-openssl.cnf \
-      -key "private/$1.key.pem" \
-      -new -sha256\
-      -out "csr/$1.csr.pem" \
-      -subj "$DN" \
-      -addext "subjectAltName = $SAN"
-fi
+openssl req -config ../intermediate-openssl.cnf \
+  -key "private/$1.key.pem" \
+  -new -sha256\
+  -out "csr/$1.csr.pem" \
+  -subj "$DN" \
+  -addext "subjectAltName = $SAN"
 echo "Created Certificate Request for $1"
 openssl ca -batch -config ../intermediate-openssl.cnf \
       -extensions $3 -days ${CERT_DAYS:-3650} -notext -md sha256 \

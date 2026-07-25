@@ -50,6 +50,11 @@ docker exec -it lightpki ./issue_key_cert ftp.example.com "FTP Server" server_ce
 The CN may also be a wildcard (a single leading "*." label), e.g.
 docker exec -it lightpki ./issue_key_cert "*.example.com" "Web Service" server_cert 2048
 
+An optional 5th argument adds extra Subject Alternative Names as a
+comma-separated list of DNS:name or IP:address entries (the CN is
+always included as a SAN automatically), e.g.
+docker exec -it lightpki ./issue_key_cert www.example.com "Web Service" server_cert 2048 "DNS:example.com,IP:10.0.0.5"
+
 To revoke a certificate 
 docker exec -it lightpki ./revoke_cert ftp.example.com
 
@@ -64,8 +69,8 @@ reverse proxy for anything beyond local/trusted-network use.
 
 Each issued-certificate row also has a Renew button (when not
 revoked): it revokes the current certificate, regenerates the CRL,
-and issues a fresh one with the same CN/OU/extension/key type/SAN IP,
-detected from the existing certificate.
+and issues a fresh one with the same CN/OU/extension/key type/SAN
+entries, detected from the existing certificate.
 
 If EXPIRY_WEBHOOK_URL is set, certificates within EXPIRY_WARNING_DAYS
 (default 30) of expiring show as "Expiring Soon" on the dashboard, and

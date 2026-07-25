@@ -24,9 +24,10 @@
       {% endfor %}
     </select>
   </label>
-  <label>SAN IP (optional)
-    <input type="text" name="san_ip" value="{{ san_ip or '' }}" placeholder="10.0.0.5">
+  <label>Additional SAN entries (optional)
+    <input type="text" name="sans" value="{{ sans or '' }}" placeholder="api.example.com, 10.0.0.5, *.example.com">
   </label>
+  <p><small>Comma-separated hostnames and/or IP addresses. The CN above is always included as a SAN automatically.</small></p>
   <button type="submit">Issue Certificate</button>
 </form>
 {% endblock %}
