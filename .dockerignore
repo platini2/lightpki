@@ -3,4 +3,5 @@ intermediate/
 out/
 *.pem
 *.key
+.env
 .git

@@ -1,5 +1,9 @@
 #!/bin/sh
 set -e
+if [ -z "$INTERMEDIATECA_PASSPHRASE" ]; then
+    echo "INTERMEDIATECA_PASSPHRASE is not set or empty; refusing to create an unprotected key" >&2
+    exit 1
+fi
 CN=$INTERMEDIATECN
 DN="/C=$C/ST=$ST/L=$L/O=$O/OU=$OU/CN=$CN/emailAddress=$MAIL"
 echo "-----------------------------"

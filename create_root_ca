@@ -1,5 +1,9 @@
 #!/bin/sh
 set -e
+if [ -z "$ROOTCA_PASSPHRASE" ]; then
+    echo "ROOTCA_PASSPHRASE is not set or empty; refusing to create an unprotected key" >&2
+    exit 1
+fi
 CN=$ROOTCN
 DN="/C=$C/ST=$ST/L=$L/O=$O/OU=$OU/CN=$CN/emailAddress=$MAIL"
 echo "-----------------------------"
