@@ -64,6 +64,7 @@ sudo docker run -d --name=lightpki \
   -e EXPIRY_WARNING_DAYS=30 \
   -e EXPIRY_WEBHOOK_URL=https://your-webhook-endpoint \
   -e EXPIRY_CHECK_INTERVAL_HOURS=24 \
+  -e CRL_REGEN_INTERVAL_HOURS=24 \
   --restart=unless-stopped \
   lightpki
 ```
@@ -162,7 +163,11 @@ revoke_cert ftp.example.com
 
 Marks the certificate revoked in the CA database. Regenerate the CRL
 afterwards with `./generate_crl` (the admin UI's Revoke button does this
-automatically).
+automatically). The admin UI also regenerates the CRL periodically on its
+own (see `CRL_REGEN_INTERVAL_HOURS` below) since it has its own validity
+window and goes stale if nothing ever refreshes it — without the admin UI,
+schedule `./generate_crl` yourself (e.g. via cron) if you go a long time
+between revocations.
 
 ## Checking OCSP status
 
@@ -203,13 +208,20 @@ without `docker exec`:
   of the cert itself, revokes it, regenerates the CRL, and reissues a fresh
   certificate with the same identity — no need to remember what you
   originally issued it with.
-- **CRL** — view the parsed CRL and download the raw file.
-- **Expiry alerting** — if `EXPIRY_WEBHOOK_URL` is set, certificates within
+- **CRL** — view the parsed CRL and download the raw file. It's also
+  regenerated automatically on startup and every `CRL_REGEN_INTERVAL_HOURS`
+  (default 24), independent of whether anything's actually been revoked —
+  the CRL has its own validity window (`default_crl_days = 30`) and goes
+  stale on its own if nothing ever regenerates it.
+- **Expiry alerting** — if `EXPIRY_WEBHOOK_URL` is set, certificates *and
+  the root/intermediate CA certificates themselves* within
   `EXPIRY_WARNING_DAYS` (default 30) of expiring show as "Expiring Soon," and
   a background check (on startup, then every `EXPIRY_CHECK_INTERVAL_HOURS`,
   default 24) POSTs a JSON payload
   (`{cn, ou, serial, expiry, days_remaining, message}`) to that URL once per
-  certificate the first time it crosses the threshold.
+  certificate the first time it crosses the threshold. A CA cert lapsing is
+  far more serious than any single leaf cert — every certificate it signed
+  stops verifying — so it's watched the same way.
 
 All state-changing actions (issue/revoke/renew) are CSRF-protected and
 delegate to the same shell scripts described above — the admin UI never
@@ -240,6 +252,7 @@ reverse proxy for anything beyond local/trusted-network use.
 | `EXPIRY_WARNING_DAYS` | `30` | Days-to-expiry threshold for the "Expiring Soon" status/alerting. |
 | `EXPIRY_WEBHOOK_URL` | — | If set, enables expiry alerting to this URL. |
 | `EXPIRY_CHECK_INTERVAL_HOURS` | `24` | How often the background expiry check runs (plus once at startup). |
+| `CRL_REGEN_INTERVAL_HOURS` | `24` | How often the CRL is automatically regenerated (plus once at startup), independent of revocations, so it never goes stale from inactivity. Always active when `ADMIN_UI=true`. |
 
 ## Cleanup
 

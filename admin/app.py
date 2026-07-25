@@ -50,6 +50,7 @@ KEY_SPECS = {
 EXPIRY_WARNING_DAYS = int(os.environ.get("EXPIRY_WARNING_DAYS", "30"))
 EXPIRY_WEBHOOK_URL = os.environ.get("EXPIRY_WEBHOOK_URL", "")
 EXPIRY_CHECK_INTERVAL_HOURS = float(os.environ.get("EXPIRY_CHECK_INTERVAL_HOURS", "24"))
+CRL_REGEN_INTERVAL_HOURS = float(os.environ.get("CRL_REGEN_INTERVAL_HOURS", "24"))
 
 
 def parse_san_entries(raw):
@@ -151,6 +152,28 @@ def run_script(name, args, timeout=120):
 # --- CA / certificate state ----------------------------------------------
 
 
+def _cert_days_remaining(not_after):
+    """Days until (or since, if negative) a human-formatted
+    `openssl -enddate`-style timestamp (e.g. 'Jul 22 12:19:26 2036 GMT')."""
+    if not not_after:
+        return None
+    try:
+        end = datetime.strptime(not_after.replace(" GMT", ""), "%b %d %H:%M:%S %Y")
+    except ValueError:
+        return None
+    return (end.replace(tzinfo=timezone.utc) - datetime.now(timezone.utc)).days
+
+
+def _cert_status_from_days(days_remaining):
+    if days_remaining is None:
+        return "Valid"
+    if days_remaining < 0:
+        return "Expired"
+    if days_remaining <= EXPIRY_WARNING_DAYS:
+        return "Expiring Soon"
+    return "Valid"
+
+
 def ca_info(cert_path):
     if not os.path.isfile(cert_path):
         return None
@@ -168,7 +191,13 @@ def ca_info(cert_path):
             subject = line[len("subject=") :].strip()
         elif line.startswith("notAfter="):
             enddate = line[len("notAfter=") :].strip()
-    return {"subject": subject, "enddate": enddate}
+    days_remaining = _cert_days_remaining(enddate)
+    return {
+        "subject": subject,
+        "enddate": enddate,
+        "days_remaining": days_remaining,
+        "status": _cert_status_from_days(days_remaining),
+    }
 
 
 def ca_summary():
@@ -298,17 +327,6 @@ def describe_cert(cert_path):
     }
 
 
-def _cert_expired(details):
-    not_after = details.get("not_after") if details else None
-    if not not_after:
-        return False
-    try:
-        end = datetime.strptime(not_after.replace(" GMT", ""), "%b %d %H:%M:%S %Y")
-    except ValueError:
-        return False
-    return end.replace(tzinfo=timezone.utc) < datetime.now(timezone.utc)
-
-
 def parse_csr(csr_pem):
     """Validate a submitted CSR and extract what we're willing to trust
     from it (the CN) plus what it's requesting for display/review (SAN
@@ -416,11 +434,36 @@ def _send_expiry_webhook(entry):
     urllib.request.urlopen(req, timeout=10)
 
 
+def _ca_expiry_entries():
+    """Synthesize dashboard-style entries for the root/intermediate CA
+    certs themselves, so their expiry can be watched the same way as
+    leaf certs -- a CA cert lapsing is far more catastrophic than any
+    single leaf cert, since every certificate it signed stops
+    verifying."""
+    entries = []
+    summary = ca_summary()
+    for which, label in (("root", "Root CA"), ("intermediate", "Intermediate CA")):
+        info = summary[which]
+        if info is None:
+            continue
+        entries.append(
+            {
+                "serial": f"ca-{which}",
+                "cn": label,
+                "ou": "",
+                "status": info["status"],
+                "expiry": info["enddate"],
+                "days_remaining": info["days_remaining"],
+            }
+        )
+    return entries
+
+
 def check_expiring_certificates():
     if not EXPIRY_WEBHOOK_URL:
         return
     notified = _load_notified_serials()
-    for entry in load_certificates():
+    for entry in load_certificates() + _ca_expiry_entries():
         if entry["status"] != "Expiring Soon":
             continue
         if entry["serial"] in notified:
@@ -444,6 +487,25 @@ def _expiry_alert_loop():
 def start_expiry_alert_thread():
     if EXPIRY_WEBHOOK_URL:
         threading.Thread(target=_expiry_alert_loop, daemon=True).start()
+
+
+def _crl_regen_loop():
+    while True:
+        try:
+            result = run_script("generate_crl", [])
+            if result.returncode != 0:
+                print(
+                    f"lightpki admin: periodic CRL regeneration failed:\n"
+                    f"{result.stdout}\n{result.stderr}",
+                    file=sys.stderr,
+                )
+        except Exception as exc:
+            print(f"lightpki admin: periodic CRL regeneration failed: {exc}", file=sys.stderr)
+        time.sleep(CRL_REGEN_INTERVAL_HOURS * 3600)
+
+
+def start_crl_regen_thread():
+    threading.Thread(target=_crl_regen_loop, daemon=True).start()
 
 
 def parse_dn(dn):
@@ -574,7 +636,7 @@ def view_ca(which):
         "cn": label,
         "ou": "",
         "serial": details.get("serial") or "-",
-        "status": "Expired" if _cert_expired(details) else "Valid",
+        "status": _cert_status_from_days(_cert_days_remaining(details.get("not_after"))),
         "revoked_at": None,
         "bundle": None,
     }
@@ -849,6 +911,7 @@ def download(filename):
 def main():
     port = int(os.environ.get("ADMIN_PORT", "8080"))
     start_expiry_alert_thread()
+    start_crl_regen_thread()
     from waitress import serve
 
     serve(app, host="0.0.0.0", port=port)

@@ -4,11 +4,18 @@
 <section>
   <h2>Certificate Authorities</h2>
   <table>
-    <tr><th>CA</th><th>Subject</th><th>Expires</th><th></th></tr>
+    <tr><th>CA</th><th>Subject</th><th>Expires</th><th>Status</th><th></th></tr>
     <tr>
       <td>Root</td>
       <td>{{ ca.root.subject if ca.root else "not initialized" }}</td>
       <td>{{ ca.root.enddate if ca.root else "-" }}</td>
+      <td>
+        {% if ca.root %}
+        <span class="status status-{{ ca.root.status|lower|replace(' ', '-') }}">{{ ca.root.status }}</span>
+        {% else %}
+        -
+        {% endif %}
+      </td>
       <td>
         {% if ca.root %}
         <form class="inline-form" method="get" action="{{ url_for('view_ca', which='root') }}">
@@ -21,6 +28,13 @@
       <td>Intermediate</td>
       <td>{{ ca.intermediate.subject if ca.intermediate else "not initialized" }}</td>
       <td>{{ ca.intermediate.enddate if ca.intermediate else "-" }}</td>
+      <td>
+        {% if ca.intermediate %}
+        <span class="status status-{{ ca.intermediate.status|lower|replace(' ', '-') }}">{{ ca.intermediate.status }}</span>
+        {% else %}
+        -
+        {% endif %}
+      </td>
       <td>
         {% if ca.intermediate %}
         <form class="inline-form" method="get" action="{{ url_for('view_ca', which='intermediate') }}">
