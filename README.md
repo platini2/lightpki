@@ -44,7 +44,7 @@ Run initially to set enviroment variable
 source .env
 
 To initialize the PKI
-./startup_pki
+./start_pki
 
 then 
 

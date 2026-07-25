@@ -1,4 +1,4 @@
-#!/bin/sh
+#!/bin/bash
 if [[ $# -lt 4 ]] ; then
     echo 'issue_key_cert <CN> <OU> <extension> <key_length>'
     echo '<extension> - server_cert / usr_cert'

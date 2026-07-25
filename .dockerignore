@@ -1,0 +1,6 @@
+root/
+intermediate/
+out/
+*.pem
+*.key
+.git
