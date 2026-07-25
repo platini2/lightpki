@@ -1,5 +1,5 @@
-#!/bin/bash
-if [[ $# -lt 4 ]] ; then
+#!/bin/sh
+if [ $# -lt 4 ] ; then
     echo 'issue_key_cert <CN> <OU> <extension> <key_length>'
     echo '<extension> - server_cert / usr_cert'
     echo 'issue_key_cert ftp.example.com "FTP Server" server_cert 2048'        
@@ -16,14 +16,14 @@ openssl genrsa \
       -out private/$1.key.pem $4
 chmod 400 private/$1.key.pem
 echo "Created Key for $1"
-if [[ $# -eq 4 ]] ; then
+if [ $# -eq 4 ] ; then
     openssl req -config ../intermediate-openssl.cnf \
       -key private/$1.key.pem \
       -new -sha256\
       -out csr/$1.csr.pem \
       -subj "$DN"
 fi
-if [[ $# -eq 5 ]] ; then
+if [ $# -eq 5 ] ; then
     SAN=DNS:$CN,IP:$5
     openssl req -config ../intermediate-openssl.cnf \
       -key private/$1.key.pem \
