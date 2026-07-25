@@ -196,8 +196,9 @@ without `docker exec`:
   `openssl x509 -text` output in a collapsible section for anyone who
   wants it.
 - **Issue** — a form for CN (including wildcards), OU, certificate type, key
-  type (RSA or ECDSA), and additional SAN entries (comma-separated
-  hostnames/IPs, auto-classified).
+  type (RSA or ECDSA), additional SAN entries (comma-separated
+  hostnames/IPs, auto-classified), and a validity period (days, defaults
+  to `CERT_DAYS`/3650, overridable per certificate).
 - **Sign CSR** — paste an externally-generated CSR; shows the extracted CN,
   requested SAN entries, key type, and any suspicious requested extensions
   (`CA:TRUE`, `keyCertSign` — always ignored regardless) for review before

@@ -28,6 +28,9 @@
     <input type="text" name="sans" value="{{ sans or '' }}" placeholder="api.example.com, 10.0.0.5, *.example.com">
   </label>
   <p><small>Comma-separated hostnames and/or IP addresses. The CN above is always included as a SAN automatically.</small></p>
+  <label>Validity (days)
+    <input type="number" name="cert_days" value="{{ cert_days or 3650 }}" min="1" max="36500" required>
+  </label>
   <button type="submit">Issue Certificate</button>
 </form>
 {% endblock %}

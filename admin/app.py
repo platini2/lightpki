@@ -51,6 +51,7 @@ EXPIRY_WARNING_DAYS = int(os.environ.get("EXPIRY_WARNING_DAYS", "30"))
 EXPIRY_WEBHOOK_URL = os.environ.get("EXPIRY_WEBHOOK_URL", "")
 EXPIRY_CHECK_INTERVAL_HOURS = float(os.environ.get("EXPIRY_CHECK_INTERVAL_HOURS", "24"))
 CRL_REGEN_INTERVAL_HOURS = float(os.environ.get("CRL_REGEN_INTERVAL_HOURS", "24"))
+DEFAULT_CERT_DAYS = os.environ.get("CERT_DAYS", "3650")
 
 
 def parse_san_entries(raw):
@@ -131,13 +132,16 @@ class ScriptResult:
         self.stderr = stderr
 
 
-def run_script(name, args, timeout=120):
+def run_script(name, args, timeout=120, extra_env=None):
     path = os.path.join(REPO_ROOT, name)
+    env = os.environ.copy()
+    if extra_env:
+        env.update(extra_env)
     try:
         proc = subprocess.run(
             [path, *args],
             cwd=REPO_ROOT,
-            env=os.environ.copy(),
+            env=env,
             capture_output=True,
             text=True,
             timeout=timeout,
@@ -646,7 +650,9 @@ def view_ca(which):
 @app.route("/issue", methods=["GET", "POST"])
 def issue():
     if request.method == "GET":
-        return render_template("issue.html", extensions=EXTENSIONS, key_specs=KEY_SPECS)
+        return render_template(
+            "issue.html", extensions=EXTENSIONS, key_specs=KEY_SPECS, cert_days=DEFAULT_CERT_DAYS
+        )
 
     check_csrf()
 
@@ -655,8 +661,11 @@ def issue():
     extension = request.form.get("extension", "")
     key_spec = request.form.get("key_spec", "")
     sans = request.form.get("sans", "").strip()
+    cert_days = request.form.get("cert_days", "").strip()
 
-    form_state = dict(cn=cn, ou=ou, extension=extension, key_spec=key_spec, sans=sans)
+    form_state = dict(
+        cn=cn, ou=ou, extension=extension, key_spec=key_spec, sans=sans, cert_days=cert_days
+    )
 
     errors = []
     if not CN_RE.match(cn):
@@ -672,6 +681,8 @@ def issue():
         errors.append("Invalid key type.")
     san_entries, san_errors = parse_san_entries(sans)
     errors.extend(san_errors)
+    if not cert_days.isdigit() or not (1 <= int(cert_days) <= 36500):
+        errors.append("Validity (days) must be a whole number between 1 and 36500.")
 
     if errors:
         for e in errors:
@@ -684,7 +695,7 @@ def issue():
     if san_entries:
         args.append(",".join(san_entries))
 
-    result = run_script("issue_key_cert", args)
+    result = run_script("issue_key_cert", args, extra_env={"CERT_DAYS": cert_days})
     if result.returncode != 0:
         flash(f"issue_key_cert failed:\n{result.stdout}\n{result.stderr}", "error")
         return render_template(
