@@ -1,4 +1,5 @@
 #!/bin/sh
+set -e
 echo "-----------------------------"
 echo "Checking Certificate $1 with OCSP Server"
 echo "-----------------------------"

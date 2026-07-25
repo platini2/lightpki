@@ -1,4 +1,5 @@
 #!/bin/sh
+set -e
 if [ $# -ne 1 ] ; then
     echo 'revoke_cert <CN>'
     echo 'revoke_cert ftp.example.com'

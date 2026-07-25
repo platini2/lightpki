@@ -1,2 +1,4 @@
+#!/bin/sh
+set -e
 rm -rf intermediate/* root/* out/*
 touch startup
