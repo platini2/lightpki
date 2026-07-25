@@ -8,6 +8,7 @@ echo "-----------------------------"
 cd $INTERMEDIATECA_DIRECTORY
 mkdir certs crl csr newcerts private 
 chmod 700 private
+umask 077
 touch index.txt
 touch certs.db
 echo 1000 > serial

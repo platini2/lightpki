@@ -1,5 +1,6 @@
 #!/bin/sh
 set -e
+umask 077
 if [ $# -lt 4 ] ; then
     echo 'issue_key_cert <CN> <OU> <extension> <key_length>'
     echo '<extension> - server_cert / usr_cert'

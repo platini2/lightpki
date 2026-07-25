@@ -1,5 +1,6 @@
 #!/bin/sh
 set -e
+umask 077
 if [ $# -ne 1 ] ; then
     echo 'revoke_cert <CN>'
     echo 'revoke_cert ftp.example.com'
