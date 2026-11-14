@@ -6,7 +6,12 @@ WORKDIR /opt/pki
 # Owned by the runtime user: start_pki rewrites intermediate-openssl.cnf in
 # place on every start.
 COPY --chown=pki:pki . /opt/pki/
-RUN chmod +x create_root_ca create_intermediate_ca sign_root_ca generate_crl \
+# The directory itself must be writable too: `sed -i` creates its temp file
+# next to the config. Pre-creating the volume mount points owned by pki also
+# makes fresh named Docker volumes start out owned by pki instead of root.
+RUN mkdir -p root intermediate out \
+ && chown pki:pki /opt/pki root intermediate out \
+ && chmod +x create_root_ca create_intermediate_ca sign_root_ca generate_crl \
              issue_key_cert revoke_cert sign_csr ocsp_check_cert start_ocsp_server \
              start_pki cleanup_pki healthcheck
 RUN pip3 install --no-cache-dir --break-system-packages -r admin/requirements.txt

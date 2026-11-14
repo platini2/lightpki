@@ -64,6 +64,21 @@ run_ocsp_forever() {
     done
 }
 
+# OpenSSL's responder handles one connection at a time and waits forever for
+# a request, so a single client that connects without sending one (port
+# scanner, load-balancer TCP probe) freezes it; its -timeout option doesn't
+# help on OpenSSL 3.1. Send it a real query every 30s and kill it if it
+# doesn't answer, so run_ocsp_forever starts a fresh one.
+ocsp_watchdog() {
+    while true; do
+        sleep 30
+        if ! ADMIN_UI=false OCSP_SERVER=true ./healthcheck; then
+            echo "OCSP responder not answering; restarting it" >&2
+            pkill -f "openssl ocsp -port" || true
+        fi
+    done
+}
+
 # The admin UI regenerates the CRL on its own schedule. Without it, do the
 # same here so the CRL (valid for default_crl_days = 30) never goes stale.
 crl_regen_forever() {
@@ -77,6 +92,7 @@ crl_regen_forever() {
 if [ "$ADMIN_UI" = "true" ]; then
     if [ "$OCSP_SERVER" = "true" ]; then
         run_ocsp_forever &
+        ocsp_watchdog &
     fi
     echo "Starting admin UI on port ${ADMIN_PORT:-8080}"
     exec python3 admin/app.py
@@ -86,6 +102,7 @@ elif [ "$OCSP_SERVER" = "true" ]; then
     ./generate_crl >/dev/null || echo "CRL regeneration failed" >&2
     crl_regen_forever &
     run_ocsp_forever &
+    ocsp_watchdog &
     wait
 else
     echo "PKI ready (OCSP server and admin UI disabled; nothing will refresh the CRL)"
