@@ -1,0 +1,31 @@
+#!/bin/sh
+# Revoke one certificate by serial number. Unlike revoke_cert (by name), this
+# always hits exactly the certificate meant, even when several certificates
+# share a name (renewals, ACME). Regenerate the CRL afterwards.
+set -e
+umask 077
+if [ $# -lt 1 ] || [ $# -gt 2 ] ; then
+    echo 'revoke_serial <SERIAL> [reason]'
+    echo 'revoke_serial 100A keyCompromise'
+    exit 1
+fi
+SERIAL=$1
+REASON=${2:-unspecified}
+case "$SERIAL" in
+    ''|*[!0-9A-Fa-f]*) echo "Invalid serial '$SERIAL'" >&2; exit 1 ;;
+esac
+case "$REASON" in
+    unspecified|keyCompromise|CACompromise|affiliationChanged|superseded|cessationOfOperation|certificateHold|removeFromCRL) ;;
+    *) echo "Invalid reason '$REASON'" >&2; exit 1 ;;
+esac
+SERIAL=$(echo "$SERIAL" | tr 'a-f' 'A-F')
+exec 9>"$INTERMEDIATECA_DIRECTORY/.ca.lock"
+flock 9
+cd "$INTERMEDIATECA_DIRECTORY"
+if [ ! -f "newcerts/$SERIAL.pem" ]; then
+    echo "No certificate with serial $SERIAL" >&2
+    exit 1
+fi
+openssl ca -config ../intermediate-openssl.cnf \
+      -passin env:INTERMEDIATECA_PASSPHRASE \
+      -revoke "newcerts/$SERIAL.pem" -crl_reason "$REASON"

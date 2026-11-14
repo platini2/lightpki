@@ -35,6 +35,37 @@ cert_opt          = ca_default
 default_days      = 375
 preserve          = no
 policy            = policy_loose
+# Allow several valid certificates with the same subject: ACME clients renew
+# well before expiry, and admin-issued certs are found by serial, not name.
+unique_subject    = no
+
+# Used by sign_acme_csr (`openssl ca -name CA_acme`). Same database as
+# CA_default, but copy_extensions = none: ACME requests only get the
+# extensions LightPKI puts in after validating every name, never whatever
+# else the CSR asks for (CA:TRUE, extra names, name constraints...).
+[ CA_acme ]
+base              = ${ENV::PKI_HOME}
+dir               = $base/intermediate
+certs             = $dir/certs
+crl_dir           = $dir/crl
+new_certs_dir     = $dir/newcerts
+database          = $dir/index.txt
+serial            = $dir/serial
+RANDFILE          = $dir/private/.rand
+copy_extensions   = none
+private_key       = $dir/private/intermediate.key.pem
+certificate       = $dir/certs/intermediate.cert.pem
+crlnumber         = $dir/crlnumber
+crl               = $dir/crl/intermediate.crl.pem
+crl_extensions    = crl_ext
+default_crl_days  = 30
+default_md        = sha256
+name_opt          = ca_default
+cert_opt          = ca_default
+default_days      = 90
+preserve          = no
+policy            = policy_loose
+unique_subject    = no
 
 [ policy_strict ]
 # The root CA should only sign intermediate certificates that match.

@@ -1,5 +1,6 @@
 #!/bin/sh
 set -e
+. "$(dirname "$0")/pki_env"
 if [ -z "$INTERMEDIATECA_PASSPHRASE" ]; then
     echo "INTERMEDIATECA_PASSPHRASE is not set or empty; refusing to create an unprotected key" >&2
     exit 1

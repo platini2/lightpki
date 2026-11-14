@@ -1,0 +1,49 @@
+#!/bin/sh
+# Sign a CSR for the ACME server after it has validated every name.
+# Called by admin/acme.py; not meant to be run by hand.
+set -e
+. "$(dirname "$0")/pki_env"
+umask 077
+if [ $# -ne 5 ] ; then
+    echo 'sign_acme_csr <CSR_FILE> <OUT_CERT> <CN> <SAN_LIST> <DAYS>'
+    echo '<SAN_LIST> - comma-separated DNS:name entries, already validated'
+    exit 1
+fi
+CSR_FILE=$1
+OUT_CERT=$2
+CN=$3
+SAN_LIST=$4
+DAYS=$5
+
+case "$CN" in
+    ''|*[!A-Za-z0-9.-]*) echo "Invalid CN '$CN'" >&2; exit 1 ;;
+esac
+case "$SAN_LIST" in
+    ''|*[!A-Za-z0-9:.,-]*) echo "Invalid SAN list '$SAN_LIST'" >&2; exit 1 ;;
+esac
+case "$DAYS" in
+    ''|*[!0-9]*) echo "Invalid days '$DAYS'" >&2; exit 1 ;;
+esac
+
+DN="/C=$C/ST=$ST/L=$L/O=$O/OU=ACME/CN=$CN"
+PKI_DIR=$(dirname "$INTERMEDIATECA_DIRECTORY")
+EXTFILE=$(mktemp)
+trap 'rm -f "$EXTFILE"' EXIT
+# Reuse the server_cert profile, including the OCSP/CRL URLs that start_pki
+# templates into it, and add only the validated names.
+awk '/^\[ *server_cert *\]/ { inside = 1; print "[ acme_cert ]"; next }
+     /^\[/ { inside = 0 }
+     inside && !/^[ \t]*#/ && NF' "$PKI_DIR/intermediate-openssl.cnf" > "$EXTFILE"
+echo "subjectAltName = $SAN_LIST" >> "$EXTFILE"
+
+# Same lock as every other script that changes the CA database.
+exec 9>"$INTERMEDIATECA_DIRECTORY/.ca.lock"
+flock 9
+cd "$INTERMEDIATECA_DIRECTORY"
+openssl ca -batch -config ../intermediate-openssl.cnf -name CA_acme \
+      -extfile "$EXTFILE" -extensions acme_cert \
+      -days "$DAYS" -notext -md sha256 \
+      -passin env:INTERMEDIATECA_PASSPHRASE \
+      -subj "$DN" \
+      -in "$CSR_FILE" \
+      -out "$OUT_CERT"

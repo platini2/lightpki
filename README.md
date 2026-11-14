@@ -22,6 +22,11 @@ directories you control.
 - Sign externally-generated CSRs — the requester's private key never has
   to touch this CA.
 - Revocation with automatic CRL regeneration, and a built-in OCSP responder.
+- The CRL and CA certificates served over HTTP at the CRL Distribution
+  Point URL embedded in issued certificates.
+- Optional ACME server (RFC 8555, http-01): certbot, acme.sh, lego, Caddy,
+  Traefik or cert-manager get and renew certificates automatically, the way
+  they would from Let's Encrypt.
 - Optional web admin UI: dashboard, issue/revoke/renew certificates, view and
   download the CRL, expiry alerting via webhook — all without `docker exec`.
 - Runs standalone (any POSIX `/bin/sh`) or in Docker (Alpine-based image).
@@ -42,15 +47,19 @@ sudo chown -R 10001:10001 /var/docker/lightpki
 sudo docker run -d --name=lightpki \
   -p 2560:2560 \
   -p 127.0.0.1:8080:8080 \
+  -p 8081:8081 \
+  -p 8443:8443 \
   -v /var/docker/lightpki/root:/opt/pki/root:rw \
   -v /var/docker/lightpki/intermediate:/opt/pki/intermediate:rw \
   -v /var/docker/lightpki/out:/opt/pki/out:rw \
   -e PKI_HOME=/opt/pki \
   -e DOMAIN=example.com \
   -e OCSP=true \
+  -e CRL=true \
+  -e ACME=true \
+  -e ACME_ALLOWED_DOMAINS=example.com \
   -e OCSP_PORT=2560 \
   -e OCSP_SERVER=true \
-  -e CRL=false \
   -e ROOTCA_DIRECTORY=/opt/pki/root \
   -e ROOTCA_PASSPHRASE=TESTING123 \
   -e INTERMEDIATECA_DIRECTORY=/opt/pki/intermediate \
@@ -196,9 +205,14 @@ certificates, so their zip bundle contains only the cert and chain.
 
 ```
 revoke_cert ftp.example.com
+revoke_serial 100A [reason]
 ```
 
-Marks the certificate revoked in the CA database. Regenerate the CRL
+`revoke_cert` revokes the latest certificate issued for a name;
+`revoke_serial` revokes exactly one certificate by serial number (shown in
+the admin UI), which is what you want when several certificates share a
+name, e.g. after ACME renewals. The admin UI always revokes by serial.
+Either marks the certificate revoked in the CA database. Regenerate the CRL
 afterwards with `./generate_crl` (the admin UI's Revoke button does this
 automatically). The admin UI also regenerates the CRL periodically on its
 own (see `CRL_REGEN_INTERVAL_HOURS` below) since it has its own validity
@@ -207,11 +221,85 @@ but `OCSP_SERVER=true`, `start_pki` does the same refresh itself. With both
 off, schedule `./generate_crl` yourself (e.g. via cron).
 
 All scripts that change the CA database (`issue_key_cert`, `sign_csr`,
-`revoke_cert`, `generate_crl`) take an exclusive lock on
+`sign_acme_csr`, `revoke_cert`, `revoke_serial`, `generate_crl`) take an exclusive lock on
 `$INTERMEDIATECA_DIRECTORY/.ca.lock`, so running them at the same time (from
 the admin UI, `docker exec`, or cron) is safe. They need `flock`, which
 Alpine's BusyBox and util-linux provide; on macOS install it with
 `brew install flock`.
+
+## Serving the CRL over HTTP
+
+With `CRL=true`, issued server certificates carry a CRL Distribution Point
+of `http://crl.$DOMAIN:$CRL_PORT/intermediate.crl` (no port when
+`CRL_PORT=80`), and `start_pki` runs a small read-only HTTP server on
+`CRL_PORT` (default 8081) that answers it. Point `crl.$DOMAIN` at the
+LightPKI host in your DNS. It serves:
+
+| Path | Content |
+|---|---|
+| `/intermediate.crl` | The CRL, DER-encoded (what clients fetch) |
+| `/intermediate.crl.pem` | The same CRL, PEM |
+| `/ca-chain.pem` | Intermediate + root certificates, PEM |
+| `/root.crt` | Root CA certificate, DER (to install in trust stores) |
+| `/intermediate.crt` | Intermediate CA certificate, DER |
+
+It is plain HTTP on purpose: clients fetch CRLs while checking a TLS
+connection, so serving them over TLS would be circular, and everything
+here is public and signed. The CRL is regenerated on every start, after
+every revocation, and every `CRL_REGEN_INTERVAL_HOURS`.
+
+Certificates issued before `CRL=true` (or before this version, which used
+a `.crl.pem` URL on port 80) keep their old URL until they are renewed.
+
+## ACME (automatic issuance and renewal)
+
+With `ACME=true`, `start_pki` runs an ACME server (RFC 8555) on `ACME_PORT`
+(default 8443, HTTPS). On first start it issues itself a certificate for
+`acme.$DOMAIN`; point that name at the LightPKI host in your DNS. The
+directory URL is:
+
+```
+https://acme.example.com:8443/acme/directory
+```
+
+Clients must trust the LightPKI root first, since the ACME server's own
+certificate comes from it. Download it from the CRL server
+(`http://crl.example.com:8081/root.crt` or `/ca-chain.pem`) or the `out/`
+bundles. For example, with certbot:
+
+```
+curl -o /usr/local/share/ca-certificates/lightpki.crt http://crl.example.com:8081/root.crt
+update-ca-certificates
+export REQUESTS_CA_BUNDLE=/etc/ssl/certs/ca-certificates.crt
+certbot certonly --standalone \
+  --server https://acme.example.com:8443/acme/directory \
+  -d app.example.com -d www.app.example.com
+certbot renew        # from cron/systemd timer, as usual
+```
+
+How it works and what it allows:
+
+- **Validation:** `http-01` only. LightPKI fetches
+  `http://<name>/.well-known/acme-challenge/<token>` on port 80, so each
+  name must resolve, from the LightPKI host, to the machine running the
+  client. No `dns-01`, so no wildcard certificates over ACME.
+- **Allowed names:** DNS names equal to or under one of
+  `ACME_ALLOWED_DOMAINS` (comma-separated, default `$DOMAIN`). Anything
+  else is refused. No IP addresses.
+- **Certificates:** `ACME_CERT_DAYS` (default 90) days, server-auth only,
+  with the same OCSP/CRL URLs as other server certificates, subject
+  `OU=ACME`. Only the validated names are included; anything else the CSR
+  asks for (extra names, `CA:TRUE`, other extensions) is ignored. RSA
+  (2048+) or ECDSA P-256/P-384 keys.
+- **Accounts:** any key can register; there is no external account binding,
+  so anyone who can reach the ACME port and control a name under the
+  allowed domains can get a certificate for it. Keep the port on your
+  internal network.
+- **Revocation:** `certbot revoke` works for certificates the same account
+  obtained. ACME certificates show in the admin UI with `OU=ACME`; you can
+  view and revoke them there, but not renew them (their client does that).
+- State (accounts, orders, issued certificates) lives in
+  `intermediate/acme/` on the persistent volume.
 
 ## Checking OCSP status
 
@@ -275,6 +363,13 @@ reverse proxy for anything beyond local/trusted-network use.
 
 ## Environment variables
 
+The same `.env` file works with `set -a; source .env` and with
+`docker run --env-file .env` / Compose `env_file:`. Docker keeps quotes
+literally, so the scripts strip one pair of surrounding quotes from the
+name settings (`C`, `ST`, `L`, `O`, `OU`, `ROOTCN`, `INTERMEDIATECN`,
+`MAIL`, `DOMAIN`); otherwise they would end up inside every certificate
+name, which LibreSSL-based clients reject.
+
 | Variable | Default | Purpose |
 |---|---|---|
 | `PKI_HOME` | — | Base directory; must be the parent of `ROOTCA_DIRECTORY`/`INTERMEDIATECA_DIRECTORY` and match the `openssl.cnf` files' expectations. |
@@ -282,7 +377,12 @@ reverse proxy for anything beyond local/trusted-network use.
 | `OCSP` | `false` | Whether to configure/issue an OCSP-signing certificate and AIA extension. |
 | `OCSP_PORT` | — | Port the OCSP responder listens on. |
 | `OCSP_SERVER` | `false` | Whether `start_pki` launches the OCSP responder. |
-| `CRL` | `false` | Whether to set a CRL Distribution Point URI in issued certs. |
+| `CRL` | `false` | Set a CRL Distribution Point URI in issued server certs and serve it over HTTP. |
+| `CRL_PORT` | `8081` | Port of the CRL / CA certificate HTTP server; part of the CRL URL unless `80`. |
+| `ACME` | `false` | Run the ACME server. |
+| `ACME_PORT` | `8443` | HTTPS port of the ACME server. |
+| `ACME_ALLOWED_DOMAINS` | `$DOMAIN` | Comma-separated domains ACME may issue for (the domain itself and anything under it). |
+| `ACME_CERT_DAYS` | `90` | Validity of certificates issued over ACME. |
 | `ROOTCA_DIRECTORY` / `INTERMEDIATECA_DIRECTORY` | — | Where each CA's keys/certs/database live. |
 | `ROOTCA_PASSPHRASE` / `INTERMEDIATECA_PASSPHRASE` | — | Passphrases encrypting each CA's private key. Required (non-empty) or the corresponding `create_*_ca` script refuses to run. |
 | `ROOTCA_KEY_SPEC` / `INTERMEDIATECA_KEY_SPEC` | `4096` | RSA key length or EC curve name (`prime256v1`, `secp384r1`, `secp521r1`) for each CA's own key. Independent per CA -- an EC root can sign an RSA intermediate and vice versa. |
@@ -319,6 +419,9 @@ resetting a test instance.
   `INTERMEDIATECA_PASSPHRASE`, `ADMIN_PASSWORD`) before any real deployment.
 - The admin UI has no built-in TLS. The Quick start publishes it on
   `127.0.0.1` only; put a TLS reverse proxy in front for anything else.
+- The ACME server issues to anyone who can reach it and pass http-01 for a
+  name under `ACME_ALLOWED_DOMAINS`; keep port 8443 internal and the
+  allowed domains narrow.
 - Take the root CA key offline after first start (see
   "Taking the root CA offline").
 - The container runs as uid `10001`, not root.

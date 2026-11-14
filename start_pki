@@ -1,5 +1,6 @@
 #!/bin/sh
 set -e
+. "$(dirname "$0")/pki_env"
 INIT_FLAG="$ROOTCA_DIRECTORY/.initialized"
 OCSP_NAME="ocsp.$DOMAIN"
 
@@ -25,8 +26,10 @@ else
     sed -i "s|.*authorityInfoAccess.*|#authorityInfoAccess = OCSP;URI:http://ocsp.example.com|" intermediate-openssl.cnf
 fi
 if [ "$CRL" = "true" ]; then
-    CRL_NAME="crl.$DOMAIN"
-    sed -i "s|.*crlDistributionPoints.*|crlDistributionPoints = URI:http://$CRL_NAME/intermediate.crl.pem|" intermediate-openssl.cnf
+    # Served by admin/crl_server.py (DER, as RFC 5280 expects for HTTP).
+    CRL_PORT=${CRL_PORT:-8081}
+    if [ "$CRL_PORT" = "80" ]; then CRL_HOSTPORT="crl.$DOMAIN"; else CRL_HOSTPORT="crl.$DOMAIN:$CRL_PORT"; fi
+    sed -i "s|.*crlDistributionPoints.*|crlDistributionPoints = URI:http://$CRL_HOSTPORT/intermediate.crl|" intermediate-openssl.cnf
 else
     sed -i "s|.*crlDistributionPoints.*|#crlDistributionPoints = URI:http://example.com/intermediate.crl.pem|" intermediate-openssl.cnf
 fi
@@ -43,6 +46,23 @@ if [ ! -f "$INIT_FLAG" ]; then
     touch "$INIT_FLAG"
 fi
 
+# Allow several valid certificates per name (ACME renewals). The database
+# attribute file, once written, overrides the config, so update it too.
+if [ -f "$INTERMEDIATECA_DIRECTORY/index.txt.attr" ]; then
+    sed -i 's/^unique_subject = yes$/unique_subject = no/' "$INTERMEDIATECA_DIRECTORY/index.txt.attr"
+fi
+
+# Refresh the CRL (PEM and DER) on every start, so the CRL server has a
+# current DER copy even on installs created before it existed.
+./generate_crl >/dev/null || echo "CRL regeneration failed" >&2
+
+# The ACME server needs a TLS certificate for its own name. Issued once, on
+# the first start with ACME=true.
+ACME_NAME="acme.$DOMAIN"
+if [ "$ACME" = "true" ] && [ ! -f "$INTERMEDIATECA_DIRECTORY/certs/$ACME_NAME.cert.pem" ]; then
+    ./issue_key_cert "$ACME_NAME" "ACME Service" server_cert 2048 >/dev/null
+fi
+
 # The root CA is only needed to sign the intermediate, which happened above.
 # Nothing started below (admin UI, OCSP responder, CRL refresh) uses it, so
 # don't hand its passphrase to any long-running process.
@@ -54,12 +74,14 @@ if [ -f "$ROOTCA_DIRECTORY/private/ca.key.pem" ]; then
     echo "         see 'Taking the root CA offline' in the README." >&2
 fi
 
-# Restart the OCSP responder if it ever dies, instead of silently losing
-# revocation checking while the rest of the container keeps running.
-run_ocsp_forever() {
+# Restart a service if it ever dies, instead of silently losing it while the
+# rest of the container keeps running.
+run_forever() {
+    name=$1
+    shift
     while true; do
-        ./start_ocsp_server "$OCSP_NAME" || true
-        echo "OCSP server exited; restarting in 5s" >&2
+        "$@" || true
+        echo "$name exited; restarting in 5s" >&2
         sleep 5
     done
 }
@@ -68,11 +90,11 @@ run_ocsp_forever() {
 # a request, so a single client that connects without sending one (port
 # scanner, load-balancer TCP probe) freezes it; its -timeout option doesn't
 # help on OpenSSL 3.1. Send it a real query every 30s and kill it if it
-# doesn't answer, so run_ocsp_forever starts a fresh one.
+# doesn't answer, so run_forever starts a fresh one.
 ocsp_watchdog() {
     while true; do
         sleep 30
-        if ! ADMIN_UI=false OCSP_SERVER=true ./healthcheck; then
+        if ! ./healthcheck ocsp; then
             echo "OCSP responder not answering; restarting it" >&2
             pkill -f "openssl ocsp -port" || true
         fi
@@ -89,21 +111,37 @@ crl_regen_forever() {
     done
 }
 
+# Background services. In admin UI mode they become children of the admin
+# UI process; otherwise this shell waits on them.
+BACKGROUND=false
+if [ "$OCSP_SERVER" = "true" ]; then
+    run_forever "OCSP server" ./start_ocsp_server "$OCSP_NAME" &
+    ocsp_watchdog &
+    BACKGROUND=true
+fi
+if [ "$CRL" = "true" ]; then
+    run_forever "CRL server" python3 admin/crl_server.py &
+    BACKGROUND=true
+fi
+if [ "$ACME" = "true" ]; then
+    # One worker process (nonces and the state lock live in it), several
+    # threads. TLS with the certificate issued for acme.$DOMAIN above.
+    run_forever "ACME server" python3 -m gunicorn --chdir admin \
+        --bind "0.0.0.0:${ACME_PORT:-8443}" --workers 1 --threads 8 --timeout 120 \
+        --certfile "$INTERMEDIATECA_DIRECTORY/certs/$ACME_NAME.cert.pem" \
+        --keyfile "$INTERMEDIATECA_DIRECTORY/private/$ACME_NAME.key.pem" \
+        --access-logfile - acme:app &
+    BACKGROUND=true
+fi
+
 if [ "$ADMIN_UI" = "true" ]; then
-    if [ "$OCSP_SERVER" = "true" ]; then
-        run_ocsp_forever &
-        ocsp_watchdog &
-    fi
     echo "Starting admin UI on port ${ADMIN_PORT:-8080}"
     exec python3 admin/app.py
-elif [ "$OCSP_SERVER" = "true" ]; then
+elif [ "$BACKGROUND" = "true" ]; then
     # This shell is PID 1 here, so stop the children on `docker stop`.
     trap 'trap - TERM INT; kill 0; exit 0' TERM INT
-    ./generate_crl >/dev/null || echo "CRL regeneration failed" >&2
     crl_regen_forever &
-    run_ocsp_forever &
-    ocsp_watchdog &
     wait
 else
-    echo "PKI ready (OCSP server and admin UI disabled; nothing will refresh the CRL)"
+    echo "PKI ready (no services enabled; nothing will refresh the CRL)"
 fi

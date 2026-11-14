@@ -638,7 +638,11 @@ def view_cert(serial):
         abort(404)
 
     intermediate_dir = os.environ.get("INTERMEDIATECA_DIRECTORY", "")
-    cert_path = os.path.join(intermediate_dir, "certs", f"{match['cn']}.cert.pem")
+    # newcerts/<SERIAL>.pem is exactly this row's certificate; certs/<CN>.cert.pem
+    # is only the latest one for that name (several can share a name).
+    cert_path = os.path.join(intermediate_dir, "newcerts", f"{serial.upper()}.pem")
+    if not os.path.isfile(cert_path):
+        cert_path = os.path.join(intermediate_dir, "certs", f"{match['cn']}.cert.pem")
     details = describe_cert(cert_path)
     if details is None:
         flash(f"Could not read the certificate file for {match['cn']}.", "error")
@@ -807,12 +811,11 @@ def revoke(serial):
         return redirect(url_for("dashboard"))
 
     cn = match["cn"]
-    if not CN_RE.match(cn):
-        abort(400)
 
-    result = run_script("revoke_cert", [cn])
+    # By serial, not name: several certificates can share a name.
+    result = run_script("revoke_serial", [serial])
     if result.returncode != 0:
-        flash(f"revoke_cert failed:\n{result.stdout}\n{result.stderr}", "error")
+        flash(f"revoke_serial failed:\n{result.stdout}\n{result.stderr}", "error")
         return redirect(url_for("dashboard"))
 
     crl_result = run_script("generate_crl", [])
@@ -842,6 +845,13 @@ def renew(serial):
     if match["status"] == "Revoked":
         flash(f"{match['cn']} is revoked; issue a new certificate instead of renewing.", "error")
         return redirect(url_for("dashboard"))
+    if match["ou"] == "ACME":
+        flash(
+            f"{match['cn']} was issued over ACME; its ACME client renews it "
+            "(e.g. `certbot renew`). The private key never left that machine.",
+            "error",
+        )
+        return redirect(url_for("dashboard"))
 
     cn = match["cn"]
     ou = match["ou"]
@@ -859,7 +869,7 @@ def renew(serial):
         )
         return redirect(url_for("dashboard"))
 
-    revoke_result = run_script("revoke_cert", [cn])
+    revoke_result = run_script("revoke_serial", [serial])
     if revoke_result.returncode != 0:
         flash(
             f"Renewal failed while revoking the existing certificate for {cn}:\n"

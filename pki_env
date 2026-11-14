@@ -1,0 +1,20 @@
+# Sourced (not run) by the LightPKI scripts.
+#
+# `docker run --env-file` and Compose's env_file keep quotes literally, so
+# ST="New York" in a .env file arrives as the 10 characters "New York",
+# quotes included, and ends up in every certificate name. OpenSSL accepts
+# that, but LibreSSL (macOS curl, among others) rejects the whole chain.
+# A shell `source` strips them, so the same .env file works both ways only
+# if we strip one pair of surrounding quotes here.
+for _pki_var in C ST L O OU ROOTCN INTERMEDIATECN MAIL DOMAIN; do
+    eval "_pki_val=\${$_pki_var-}"
+    case "$_pki_val" in
+        \"*\"|\'*\')
+            _pki_val=${_pki_val#?}
+            _pki_val=${_pki_val%?}
+            eval "$_pki_var=\$_pki_val"
+            export "$_pki_var"
+            ;;
+    esac
+done
+unset _pki_var _pki_val

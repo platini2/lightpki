@@ -1,4 +1,5 @@
-FROM alpine:3.19
+# Alpine 3.24 ships OpenSSL 3.5 (LTS, supported until 2030).
+FROM alpine:3.24
 RUN apk add --no-cache openssl zip python3 py3-pip \
  && addgroup -S -g 10001 pki \
  && adduser -S -D -H -u 10001 -G pki -h /opt/pki pki
@@ -13,12 +14,12 @@ RUN mkdir -p root intermediate out \
  && chown pki:pki /opt/pki root intermediate out \
  && chmod +x create_root_ca create_intermediate_ca sign_root_ca generate_crl \
              issue_key_cert revoke_cert sign_csr ocsp_check_cert start_ocsp_server \
-             start_pki cleanup_pki healthcheck
+             start_pki cleanup_pki healthcheck sign_acme_csr revoke_serial
 RUN pip3 install --no-cache-dir --break-system-packages -r admin/requirements.txt
 # Host volumes for root/, intermediate/ and out/ must be owned by this uid:
 #   sudo chown -R 10001:10001 /var/docker/lightpki
 USER pki
-EXPOSE 2560
-EXPOSE 8080
-HEALTHCHECK --interval=30s --timeout=5s --start-period=180s --retries=3 CMD ["./healthcheck"]
+# OCSP, admin UI, CRL/CA certificates (HTTP), ACME (HTTPS)
+EXPOSE 2560 8080 8081 8443
+HEALTHCHECK --interval=30s --timeout=30s --start-period=180s --retries=3 CMD ["./healthcheck"]
 CMD ["./start_pki"]

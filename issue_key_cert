@@ -1,5 +1,6 @@
 #!/bin/sh
 set -e
+. "$(dirname "$0")/pki_env"
 umask 077
 if [ $# -lt 4 ] ; then
     echo 'issue_key_cert <CN> <OU> <extension> <key_spec> [SAN_LIST]'
