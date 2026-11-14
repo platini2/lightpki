@@ -1,3 +1,19 @@
+# LightPKI admin UI
+# Copyright (C) 2026 Patricio S. Latini
+#
+# This program is free software: you can redistribute it and/or modify
+# it under the terms of the GNU General Public License as published by
+# the Free Software Foundation, either version 3 of the License, or
+# (at your option) any later version.
+#
+# This program is distributed in the hope that it will be useful,
+# but WITHOUT ANY WARRANTY; without even the implied warranty of
+# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+# GNU General Public License for more details.
+#
+# You should have received a copy of the GNU General Public License
+# along with this program.  If not, see <https://www.gnu.org/licenses/>.
+
 import hmac
 import ipaddress
 import json
@@ -79,6 +95,19 @@ def parse_san_entries(raw):
 
 app = Flask(__name__)
 app.secret_key = os.environ.get("ADMIN_SECRET_KEY") or secrets.token_hex(32)
+
+
+def _read_version():
+    try:
+        with open(os.path.join(REPO_ROOT, "VERSION")) as fh:
+            return fh.read().strip() or "unknown"
+    except OSError:
+        return "unknown"
+
+
+# Shown in the page footer of every admin UI page (see base.html).
+app.jinja_env.globals["app_version"] = _read_version()
+app.jinja_env.globals["current_year"] = datetime.now().year
 
 
 # --- Auth -------------------------------------------------------------

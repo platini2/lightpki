@@ -90,3 +90,11 @@ pre {
   border: 1px solid var(--border);
   border-radius: 4px;
 }
+
+footer {
+  margin-top: 2rem;
+  padding-top: 1rem;
+  border-top: 1px solid var(--border);
+  font-size: 0.85rem;
+  opacity: 0.75;
+}

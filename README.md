@@ -325,3 +325,18 @@ resetting a test instance.
 - `.env` is git-ignored and excluded from the Docker build context
   (`.dockerignore`); copy `.env.example` to start. Prefer passing secrets
   via `-e`/orchestrator secrets at runtime.
+
+## License
+
+LightPKI is Copyright (C) 2026 Patricio S. Latini.
+
+This program is free software: you can redistribute it and/or modify it
+under the terms of the GNU General Public License as published by the Free
+Software Foundation, either version 3 of the License, or (at your option)
+any later version. It is distributed in the hope that it will be useful,
+but WITHOUT ANY WARRANTY; without even the implied warranty of
+MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+[LICENSE](LICENSE) file for the full text.
+
+The current version is in the [VERSION](VERSION) file and is shown at the
+bottom of every admin UI page.
