@@ -4,6 +4,14 @@ umask 077
 echo "-----------------------------"
 echo "Generate CRL in Intermediate CA"
 echo "-----------------------------"
+# Serialize every operation that touches the intermediate CA database
+# (index.txt / serial / crlnumber). The admin UI handles requests
+# concurrently and also regenerates the CRL in the background, and
+# `docker exec` users can run these scripts at the same time; two
+# concurrent `openssl ca` runs can hand out the same serial or corrupt
+# index.txt. The lock is released automatically when this script exits.
+exec 9>"$INTERMEDIATECA_DIRECTORY/.ca.lock"
+flock 9
 cd $INTERMEDIATECA_DIRECTORY
 openssl ca -config ../intermediate-openssl.cnf \
       -passin env:INTERMEDIATECA_PASSPHRASE \

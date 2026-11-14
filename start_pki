@@ -3,6 +3,17 @@ set -e
 INIT_FLAG="$ROOTCA_DIRECTORY/.initialized"
 OCSP_NAME="ocsp.$DOMAIN"
 
+# The container runs as an unprivileged user (see Dockerfile). Host-mounted
+# volumes created by older root-run versions are owned by root, which would
+# make every script fail with a confusing "Permission denied" halfway through.
+for d in "$ROOTCA_DIRECTORY" "$INTERMEDIATECA_DIRECTORY" "$OUTPUT_DIRECTORY"; do
+    if [ ! -w "$d" ]; then
+        echo "$d is not writable by uid $(id -u). If it is a host volume from an older" >&2
+        echo "version, run on the host: sudo chown -R $(id -u):$(id -g) <host dir>" >&2
+        exit 1
+    fi
+done
+
 # intermediate-openssl.cnf ships inside the image, not a persisted volume,
 # so it resets to the checked-in placeholder defaults on every rebuild.
 # Keep it retemplated on every start (not just first-init) so the OCSP/CRL
@@ -32,14 +43,50 @@ if [ ! -f "$INIT_FLAG" ]; then
     touch "$INIT_FLAG"
 fi
 
+# The root CA is only needed to sign the intermediate, which happened above.
+# Nothing started below (admin UI, OCSP responder, CRL refresh) uses it, so
+# don't hand its passphrase to any long-running process.
+unset ROOTCA_PASSPHRASE
+if [ -f "$ROOTCA_DIRECTORY/private/ca.key.pem" ]; then
+    echo "WARNING: the root CA private key is still on this server" >&2
+    echo "         ($ROOTCA_DIRECTORY/private/ca.key.pem). Move it to offline storage" >&2
+    echo "         and drop ROOTCA_PASSPHRASE from the container's environment;" >&2
+    echo "         see 'Taking the root CA offline' in the README." >&2
+fi
+
+# Restart the OCSP responder if it ever dies, instead of silently losing
+# revocation checking while the rest of the container keeps running.
+run_ocsp_forever() {
+    while true; do
+        ./start_ocsp_server "$OCSP_NAME" || true
+        echo "OCSP server exited; restarting in 5s" >&2
+        sleep 5
+    done
+}
+
+# The admin UI regenerates the CRL on its own schedule. Without it, do the
+# same here so the CRL (valid for default_crl_days = 30) never goes stale.
+crl_regen_forever() {
+    interval=$(awk -v h="${CRL_REGEN_INTERVAL_HOURS:-24}" 'BEGIN { print int(h * 3600) }')
+    while true; do
+        sleep "$interval"
+        ./generate_crl >/dev/null || echo "Periodic CRL regeneration failed" >&2
+    done
+}
+
 if [ "$ADMIN_UI" = "true" ]; then
     if [ "$OCSP_SERVER" = "true" ]; then
-        ./start_ocsp_server "$OCSP_NAME" &
+        run_ocsp_forever &
     fi
     echo "Starting admin UI on port ${ADMIN_PORT:-8080}"
     exec python3 admin/app.py
 elif [ "$OCSP_SERVER" = "true" ]; then
-    ./start_ocsp_server "$OCSP_NAME"
+    # This shell is PID 1 here, so stop the children on `docker stop`.
+    trap 'trap - TERM INT; kill 0; exit 0' TERM INT
+    ./generate_crl >/dev/null || echo "CRL regeneration failed" >&2
+    crl_regen_forever &
+    run_ocsp_forever &
+    wait
 else
-    echo "PKI ready (OCSP server disabled)"
+    echo "PKI ready (OCSP server and admin UI disabled; nothing will refresh the CRL)"
 fi

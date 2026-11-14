@@ -29,12 +29,19 @@ directories you control.
 ## Quick start (Docker, with permanent storage)
 
 Certs/keys are stored in host-mounted volumes so they survive container
-rebuilds and restarts.
+rebuilds and restarts. The container runs as an unprivileged user
+(uid/gid `10001`), so the host directories must be owned by it. This also
+applies when upgrading from an older version that ran as root:
+
+```
+sudo mkdir -p /var/docker/lightpki/root /var/docker/lightpki/intermediate /var/docker/lightpki/out
+sudo chown -R 10001:10001 /var/docker/lightpki
+```
 
 ```
 sudo docker run -d --name=lightpki \
   -p 2560:2560 \
-  -p 8080:8080 \
+  -p 127.0.0.1:8080:8080 \
   -v /var/docker/lightpki/root:/opt/pki/root:rw \
   -v /var/docker/lightpki/intermediate:/opt/pki/intermediate:rw \
   -v /var/docker/lightpki/out:/opt/pki/out:rw \
@@ -81,6 +88,34 @@ the persisted `root/` volume) but still re-apply the OCSP/CRL URI
 configuration on every start, so those stay correct even across image
 rebuilds.
 
+The admin UI is published on `127.0.0.1` only. Reach it over an SSH tunnel
+or a TLS-terminating reverse proxy on the same host; don't publish port
+8080 directly, since Basic Auth over plain HTTP sends the password readable.
+The OCSP responder (port 2560) is meant to be reachable by clients and only
+serves signed, public revocation status.
+
+The OCSP responder is restarted automatically if it exits, and the image
+has a `HEALTHCHECK` (`./healthcheck`) that fails when the admin UI or OCSP
+port stops accepting connections, so `docker ps` shows `unhealthy`.
+
+### Taking the root CA offline
+
+The root CA is only used once, on first start, to sign the intermediate.
+After that the running services never need it, and `start_pki` drops
+`ROOTCA_PASSPHRASE` before starting them. Leaving the root key on the same
+server as the web UI means a compromise of the UI is a compromise of the
+whole PKI, so once the first start has finished:
+
+1. Copy `/var/docker/lightpki/root/private/ca.key.pem` to offline storage
+   (encrypted USB drive, password manager attachment, HSM...).
+2. Delete it from the server: `sudo shred -u /var/docker/lightpki/root/private/ca.key.pem`.
+3. Recreate the container without `-e ROOTCA_PASSPHRASE=...` (the value is
+   otherwise visible to anyone who can run `docker inspect`).
+
+Keep `root/certs/ca.cert.pem` and the `.initialized` marker in place. Until
+the key is removed, `start_pki` prints a warning on every start. To sign a
+new intermediate later, restore the key temporarily and run `sign_root_ca`.
+
 Once running:
 
 ```
@@ -95,7 +130,9 @@ used.
 
 ```
 git clone <repo> && cd lightpki
+cp .env.example .env
 # edit .env: set real passphrases/admin password, your domain, etc.
+# .env is git-ignored; never commit it.
 set -a; source .env; set +a
 ./start_pki
 ./issue_key_cert ftp.example.com "FTP Server" server_cert 2048
@@ -165,9 +202,16 @@ Marks the certificate revoked in the CA database. Regenerate the CRL
 afterwards with `./generate_crl` (the admin UI's Revoke button does this
 automatically). The admin UI also regenerates the CRL periodically on its
 own (see `CRL_REGEN_INTERVAL_HOURS` below) since it has its own validity
-window and goes stale if nothing ever refreshes it — without the admin UI,
-schedule `./generate_crl` yourself (e.g. via cron) if you go a long time
-between revocations.
+window and goes stale if nothing ever refreshes it. With the admin UI off
+but `OCSP_SERVER=true`, `start_pki` does the same refresh itself. With both
+off, schedule `./generate_crl` yourself (e.g. via cron).
+
+All scripts that change the CA database (`issue_key_cert`, `sign_csr`,
+`revoke_cert`, `generate_crl`) take an exclusive lock on
+`$INTERMEDIATECA_DIRECTORY/.ca.lock`, so running them at the same time (from
+the admin UI, `docker exec`, or cron) is safe. They need `flock`, which
+Alpine's BusyBox and util-linux provide; on macOS install it with
+`brew install flock`.
 
 ## Checking OCSP status
 
@@ -254,7 +298,7 @@ reverse proxy for anything beyond local/trusted-network use.
 | `EXPIRY_WARNING_DAYS` | `30` | Days-to-expiry threshold for the "Expiring Soon" status/alerting. |
 | `EXPIRY_WEBHOOK_URL` | — | If set, enables expiry alerting to this URL. |
 | `EXPIRY_CHECK_INTERVAL_HOURS` | `24` | How often the background expiry check runs (plus once at startup). |
-| `CRL_REGEN_INTERVAL_HOURS` | `24` | How often the CRL is automatically regenerated (plus once at startup), independent of revocations, so it never goes stale from inactivity. Always active when `ADMIN_UI=true`. |
+| `CRL_REGEN_INTERVAL_HOURS` | `24` | How often the CRL is automatically regenerated (plus once at startup), independent of revocations, so it never goes stale from inactivity. Active when `ADMIN_UI=true` or `OCSP_SERVER=true`. |
 
 ## Cleanup
 
@@ -273,8 +317,11 @@ resetting a test instance.
   certificate the way Let's Encrypt/a commercial CA would.
 - Change every placeholder credential (`ROOTCA_PASSPHRASE`,
   `INTERMEDIATECA_PASSPHRASE`, `ADMIN_PASSWORD`) before any real deployment.
-- The admin UI has no built-in TLS — put it behind a reverse proxy if it's
-  reachable beyond a trusted local network.
-- `.env` is excluded from the Docker build context (`.dockerignore`) so
-  passphrases aren't baked into the image layer if you edit it in place —
-  prefer passing secrets via `-e`/orchestrator secrets at runtime instead.
+- The admin UI has no built-in TLS. The Quick start publishes it on
+  `127.0.0.1` only; put a TLS reverse proxy in front for anything else.
+- Take the root CA key offline after first start (see
+  "Taking the root CA offline").
+- The container runs as uid `10001`, not root.
+- `.env` is git-ignored and excluded from the Docker build context
+  (`.dockerignore`); copy `.env.example` to start. Prefer passing secrets
+  via `-e`/orchestrator secrets at runtime.
