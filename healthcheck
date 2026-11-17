@@ -27,7 +27,8 @@ EOF
 for service in $SERVICES; do
     case "$service" in
         admin)
-            http_answers "http://127.0.0.1:${ADMIN_PORT:-8080}/"
+            if [ "$ADMIN_TLS" = "true" ]; then scheme=https; else scheme=http; fi
+            http_answers "$scheme://127.0.0.1:${ADMIN_PORT:-8080}/"
             ;;
         ocsp)
             # A real OCSP request (for the responder's own certificate), not

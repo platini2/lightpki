@@ -263,19 +263,20 @@ https://acme.example.com:8443/acme/directory
 ```
 
 Clients must trust the LightPKI root first, since the ACME server's own
-certificate comes from it. Download it from the CRL server
-(`http://crl.example.com:8081/root.crt` or `/ca-chain.pem`) or the `out/`
-bundles. For example, with certbot:
+certificate comes from it (see "Trusting the LightPKI root" below). Then,
+for example with the distribution's certbot package:
 
 ```
-curl -o /usr/local/share/ca-certificates/lightpki.crt http://crl.example.com:8081/root.crt
-update-ca-certificates
-export REQUESTS_CA_BUNDLE=/etc/ssl/certs/ca-certificates.crt
 certbot certonly --standalone \
   --server https://acme.example.com:8443/acme/directory \
   -d app.example.com -d www.app.example.com
 certbot renew        # from cron/systemd timer, as usual
 ```
+
+Debian/Ubuntu and RHEL-family certbot packages use the system trust store.
+The certbot snap doesn't: run it with
+`REQUESTS_CA_BUNDLE=/etc/ssl/certs/ca-certificates.crt`, including from its
+renewal timer.
 
 How it works and what it allows:
 
@@ -300,6 +301,50 @@ How it works and what it allows:
   view and revoke them there, but not renew them (their client does that).
 - State (accounts, orders, issued certificates) lives in
   `intermediate/acme/` on the persistent volume.
+
+## Trusting the LightPKI root
+
+Machines only accept LightPKI certificates (including the admin UI's and the
+ACME server's) once the LightPKI root is installed in their trust store. The
+CRL server publishes it at `http://crl.example.com:8081/root.crt` (DER). It
+is downloaded over plain HTTP, so compare its SHA-256 fingerprint with the
+one in the admin UI (Dashboard → Root CA → View) before trusting it:
+
+```
+openssl x509 -inform DER -in root.crt -noout -fingerprint -sha256
+```
+
+Debian/Ubuntu (`update-ca-certificates` needs PEM, so convert while saving):
+
+```
+curl -s http://crl.example.com:8081/root.crt | sudo openssl x509 -inform DER -out /usr/local/share/ca-certificates/lightpki-root.crt
+sudo update-ca-certificates
+```
+
+RHEL/Rocky/Alma/Fedora (accepts DER as is):
+
+```
+sudo curl -s -o /etc/pki/ca-trust/source/anchors/lightpki-root.crt http://crl.example.com:8081/root.crt
+sudo update-ca-trust
+```
+
+macOS (Safari, Chrome and the system):
+
+```
+curl -s -o /tmp/lightpki-root.crt http://crl.example.com:8081/root.crt
+sudo security add-trusted-cert -d -r trustRoot -k /Library/Keychains/System.keychain /tmp/lightpki-root.crt
+```
+
+Windows (administrator PowerShell):
+
+```
+Invoke-WebRequest http://crl.example.com:8081/root.crt -OutFile lightpki-root.crt
+Import-Certificate -FilePath lightpki-root.crt -CertStoreLocation Cert:\LocalMachine\Root
+```
+
+Firefox uses its own store unless `security.enterprise_roots.enabled` is
+on (the default on Windows and macOS); otherwise import the file under
+Settings → Privacy & Security → Certificates.
 
 ## Checking OCSP status
 
@@ -356,10 +401,87 @@ without `docker exec`:
   far more serious than any single leaf cert — every certificate it signed
   stops verifying — so it's watched the same way.
 
+### HTTPS for the admin UI
+
+Set `ADMIN_TLS=true` to serve the admin UI over HTTPS on the same
+`ADMIN_PORT`, instead of plain HTTP. On first start LightPKI issues itself a
+certificate for `admin.$DOMAIN`, plus `localhost` and `127.0.0.1` so it also
+works over an SSH tunnel (`ADMIN_TLS_SANS` changes those extra names). Point
+`admin.$DOMAIN` at the LightPKI host and open
+`https://admin.example.com:8080`; browsers trust it once the LightPKI root
+is installed (see "Trusting the LightPKI root" under ACME).
+
+To use a certificate from another CA instead, such as a Let's Encrypt
+certificate from certbot, see "Using a certbot certificate" below.
+
+With HTTPS on, the session cookie is marked `Secure`, so the login and the
+CSRF token only travel encrypted.
+
+Certificates for LightPKI's own services (the admin UI and the ACME server)
+are valid for 397 days, renewed automatically 30 days before they expire
+(checked at start and hourly), and picked up without a restart. 397 days
+because Apple platforms (Safari, and Chrome on macOS) reject TLS server
+certificates valid for more than 825 days, even from a private CA. A 10-year
+ACME server certificate from LightPKI 1.4 is replaced on the first start.
+To change the admin certificate's names, delete
+`intermediate/certs/admin.<domain>.cert.pem` and restart.
+
+### Using a certbot certificate
+
+If certbot already manages a certificate for the admin UI's name (for
+example a Let's Encrypt one, trusted by every browser without installing the
+LightPKI root), mount certbot's folder read-only and point LightPKI at the
+files:
+
+```yaml
+  lightpki:
+    image: platini2/lightpki:1.5
+    environment:
+      ADMIN_UI: "true"
+      ADMIN_TLS: "true"
+      ADMIN_TLS_CERT: /certs/live/admin.example.com/fullchain.pem
+      ADMIN_TLS_KEY: /certs/live/admin.example.com/privkey.pem
+    volumes:
+      - /var/docker/certbot/certs:/certs:ro
+```
+
+- **Mount the whole certbot config folder** (what certbot calls
+  `/etc/letsencrypt`), not just `live/<name>`: the files in `live/` are
+  symlinks into `archive/`, which must be inside the mount too.
+- **Use `fullchain.pem`**, not `cert.pem`, so browsers get the intermediate.
+- **Renewals are picked up automatically.** LightPKI checks hourly whether
+  the certificate changed and reloads the admin UI without a restart, once
+  the new certificate and key match.
+- **The key must be readable by LightPKI.** The container runs as uid/gid
+  `10001`, and certbot keeps `privkey.pem` and the `live/` and `archive/`
+  folders root-only. LightPKI refuses to start with a message saying so.
+  Grant group `10001` read access to just this certificate with a certbot
+  deploy hook, which also re-applies it after every renewal. Save it as
+  `renewal-hooks/deploy/lightpki.sh` inside the certbot folder
+  (`/var/docker/certbot/certs/renewal-hooks/deploy/lightpki.sh`), make it
+  executable, and run it once by hand:
+
+  ```sh
+  #!/bin/sh
+  # Let LightPKI (gid 10001) read the admin UI certificate and key.
+  NAME=admin.example.com
+  LE=$(cd "$(dirname "$0")/../.." && pwd)   # certbot's config folder
+  for d in "$LE/live" "$LE/archive" "$LE/live/$NAME" "$LE/archive/$NAME"; do
+      chgrp 10001 "$d" && chmod g+rx "$d"
+  done
+  chgrp 10001 "$LE/archive/$NAME"/privkey*.pem
+  chmod g+r "$LE/archive/$NAME"/privkey*.pem
+  ```
+
+  Other certificates' keys stay root-only.
+
+LightPKI never writes to the mounted folder and doesn't issue or renew this
+certificate; certbot does.
+
 All state-changing actions (issue/revoke/renew) are CSRF-protected and
 delegate to the same shell scripts described above — the admin UI never
-reimplements certificate logic itself. Put it behind a TLS-terminating
-reverse proxy for anything beyond local/trusted-network use.
+reimplements certificate logic itself. Without `ADMIN_TLS=true`, keep it
+on localhost or behind a TLS-terminating reverse proxy.
 
 ## Environment variables
 
@@ -393,6 +515,9 @@ name, which LibreSSL-based clients reject.
 | `CERT_DAYS` | `3650` | Validity period (days) for issued leaf certificates. |
 | `ADMIN_UI` | `false` | Enable the web admin UI. |
 | `ADMIN_PORT` | `8080` | Admin UI listen port. |
+| `ADMIN_TLS` | `false` | Serve the admin UI over HTTPS (see "HTTPS for the admin UI"). |
+| `ADMIN_TLS_SANS` | `DNS:localhost,IP:127.0.0.1` | Extra names in the admin UI certificate, besides `admin.$DOMAIN`. |
+| `ADMIN_TLS_CERT` / `ADMIN_TLS_KEY` | — | Use this PEM certificate (chain) and key for the admin UI instead of issuing one, e.g. from a mounted certbot folder; reloaded when they change. |
 | `ADMIN_USERNAME` / `ADMIN_PASSWORD` | `admin` / — | Admin UI Basic Auth credentials; password is required. |
 | `ADMIN_SECRET_KEY` | random | Signs the admin UI's session cookie (CSRF tokens). Set explicitly to keep sessions valid across restarts; otherwise a new random key is generated each start. |
 | `EXPIRY_WARNING_DAYS` | `30` | Days-to-expiry threshold for the "Expiring Soon" status/alerting. |
@@ -417,8 +542,9 @@ resetting a test instance.
   certificate the way Let's Encrypt/a commercial CA would.
 - Change every placeholder credential (`ROOTCA_PASSPHRASE`,
   `INTERMEDIATECA_PASSPHRASE`, `ADMIN_PASSWORD`) before any real deployment.
-- The admin UI has no built-in TLS. The Quick start publishes it on
-  `127.0.0.1` only; put a TLS reverse proxy in front for anything else.
+- The admin UI uses plain HTTP unless `ADMIN_TLS=true`. The Quick start
+  publishes it on `127.0.0.1` only; with HTTPS on you can publish it on
+  your network, but it still guards the whole CA behind one password.
 - The ACME server issues to anyone who can reach it and pass http-01 for a
   name under `ACME_ALLOWED_DOMAINS`; keep port 8443 internal and the
   allowed domains narrow.

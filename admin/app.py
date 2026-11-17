@@ -96,6 +96,16 @@ def parse_san_entries(raw):
 app = Flask(__name__)
 app.secret_key = os.environ.get("ADMIN_SECRET_KEY") or secrets.token_hex(32)
 
+# ADMIN_TLS=true: start_pki serves this app over HTTPS with gunicorn (see
+# create_app below), so the session cookie that carries the CSRF token may
+# only travel over HTTPS.
+ADMIN_TLS = os.environ.get("ADMIN_TLS") == "true"
+app.config.update(
+    SESSION_COOKIE_SECURE=ADMIN_TLS,
+    SESSION_COOKIE_HTTPONLY=True,
+    SESSION_COOKIE_SAMESITE="Lax",
+)
+
 
 def _read_version():
     try:
@@ -958,7 +968,19 @@ def download(filename):
     return send_from_directory(output_dir, filename, as_attachment=True)
 
 
+def create_app():
+    """Entry point for gunicorn (HTTPS mode): `gunicorn 'app:create_app()'`.
+
+    Run with a single worker process, so the background threads below run
+    once, not once per worker.
+    """
+    start_expiry_alert_thread()
+    start_crl_regen_thread()
+    return app
+
+
 def main():
+    """Plain-HTTP mode (the default): serve with waitress."""
     port = int(os.environ.get("ADMIN_PORT", "8080"))
     start_expiry_alert_thread()
     start_crl_regen_thread()

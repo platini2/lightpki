@@ -56,12 +56,166 @@ fi
 # current DER copy even on installs created before it existed.
 ./generate_crl >/dev/null || echo "CRL regeneration failed" >&2
 
-# The ACME server needs a TLS certificate for its own name. Issued once, on
-# the first start with ACME=true.
+# TLS certificates for LightPKI's own HTTPS services (ACME server, admin UI).
+# 397 days: Apple platforms (Safari, Chrome on macOS) reject TLS server
+# certificates valid for more than 825 days, even from a private CA, and
+# LightPKI's default CERT_DAYS is 10 years. Reissued when missing, when
+# expiring within 30 days, or when still valid for more than 825 days (a
+# 10-year certificate from LightPKI 1.4).
+SERVICE_CERT_DAYS=397
 ACME_NAME="acme.$DOMAIN"
-if [ "$ACME" = "true" ] && [ ! -f "$INTERMEDIATECA_DIRECTORY/certs/$ACME_NAME.cert.pem" ]; then
-    ./issue_key_cert "$ACME_NAME" "ACME Service" server_cert 2048 >/dev/null
+ADMIN_NAME="admin.$DOMAIN"
+ADMIN_PID_FILE=/tmp/lightpki-admin.pid
+ACME_PID_FILE=/tmp/lightpki-acme.pid
+rm -f "$ADMIN_PID_FILE" "$ACME_PID_FILE"   # stale after a container restart
+
+# gunicorn re-reads its certificate on every new connection, and its worker
+# dies if that fails, so it never reads files that something else replaces
+# (issue_key_cert on renewal, certbot on a mounted volume). Each HTTPS
+# service gets a private copy instead: certificate chain and key in one
+# file, swapped in atomically and only once the pair matches. If the source
+# can't be read for a while, the last good certificate keeps being served.
+TLS_RUN_DIR=/tmp/lightpki-tls
+mkdir -p "$TLS_RUN_DIR"
+chmod 700 "$TLS_RUN_DIR"
+ACME_BUNDLE="$TLS_RUN_DIR/acme.pem"
+ADMIN_BUNDLE="$TLS_RUN_DIR/admin.pem"
+
+# ensure_service_cert <name> <OU> [SAN_LIST]: issue or reissue as needed.
+ensure_service_cert() {
+    svc_cert="$INTERMEDIATECA_DIRECTORY/certs/$1.cert.pem"
+    svc_key="$INTERMEDIATECA_DIRECTORY/private/$1.key.pem"
+    if [ -f "$svc_cert" ] && [ -f "$svc_key" ] \
+        && openssl x509 -checkend 2592000 -noout -in "$svc_cert" >/dev/null \
+        && ! openssl x509 -checkend 71280000 -noout -in "$svc_cert" >/dev/null; then
+        return 0
+    fi
+    [ -f "$svc_cert" ] && echo "Reissuing the $1 certificate ($SERVICE_CERT_DAYS days)" >&2
+    rm -f "$svc_cert" "$svc_key"
+    CERT_DAYS=$SERVICE_CERT_DAYS ./issue_key_cert "$1" "$2" server_cert 2048 ${3:+"$3"} >/dev/null
+}
+
+cert_fingerprint() {
+    openssl x509 -noout -fingerprint -sha256 -in "$1" 2>/dev/null
+}
+
+# Same public key in both files? Never install a pair caught halfway through
+# a renewal.
+cert_matches_key() {
+    cert_pub=$(openssl x509 -noout -pubkey -in "$1" 2>/dev/null) || return 1
+    key_pub=$(openssl pkey -pubout -in "$2" 2>/dev/null) || return 1
+    [ -n "$cert_pub" ] && [ "$cert_pub" = "$key_pub" ]
+}
+
+# install_tls_bundle <cert> <key> <bundle>: 0 if it installed a new
+# certificate; 1 if unchanged or the source pair isn't usable right now.
+install_tls_bundle() {
+    src_fingerprint=$(cert_fingerprint "$1")
+    [ -n "$src_fingerprint" ] || return 1
+    [ "$src_fingerprint" != "$(cert_fingerprint "$3")" ] || return 1
+    cert_matches_key "$1" "$2" || return 1
+    bundle_tmp=$(mktemp "$TLS_RUN_DIR/.bundle.XXXXXX") || return 1
+    # Re-check the copy itself: the source may change while being copied.
+    if cat "$1" > "$bundle_tmp" && echo >> "$bundle_tmp" && cat "$2" >> "$bundle_tmp" \
+        && cert_matches_key "$bundle_tmp" "$bundle_tmp"; then
+        mv -f "$bundle_tmp" "$3"
+        return 0
+    fi
+    rm -f "$bundle_tmp"
+    return 1
+}
+
+# Running servers pick the new file up on their next connection anyway; the
+# HUP (a graceful gunicorn reload) makes sure.
+reload_gunicorn() {
+    if [ -f "$1" ]; then
+        echo "New TLS certificate for the $2; reloading it" >&2
+        kill -HUP "$(cat "$1")" 2>/dev/null || true
+    fi
+}
+
+check_external_file() {
+    if [ ! -e "$2" ]; then
+        echo "$1=$2 can't be found by the LightPKI user (uid $(id -u), gid $(id -g))." >&2
+        echo "Either the volume isn't mounted or the path is wrong (it's the path inside" >&2
+        echo "the container), or a folder on the way isn't accessible: certbot keeps its" >&2
+        echo "live/ and archive/ folders root-only; see 'Using a certbot certificate' in" >&2
+        echo "the README for the deploy hook that grants read access." >&2
+        exit 1
+    fi
+    if [ ! -r "$2" ]; then
+        echo "$1=$2 is not readable by the LightPKI user (uid $(id -u), gid $(id -g))." >&2
+        echo "certbot keeps private keys readable by root only; see 'Using a certbot" >&2
+        echo "certificate' in the README for the deploy hook that grants read access." >&2
+        exit 1
+    fi
+}
+
+# ADMIN_TLS=true serves the admin UI over HTTPS: with ADMIN_TLS_CERT and
+# ADMIN_TLS_KEY if given (e.g. a certbot / Let's Encrypt certificate from a
+# mounted volume), otherwise with a certificate LightPKI issues for
+# admin.$DOMAIN plus ADMIN_TLS_SANS (default localhost and 127.0.0.1).
+ADMIN_TLS_ISSUED=false
+ADMIN_TLS_EXTERNAL=false
+if [ "$ADMIN_UI" = "true" ] && [ "$ADMIN_TLS" = "true" ]; then
+    if [ -n "$ADMIN_TLS_CERT" ] || [ -n "$ADMIN_TLS_KEY" ]; then
+        if [ -z "$ADMIN_TLS_CERT" ] || [ -z "$ADMIN_TLS_KEY" ]; then
+            echo "Set both ADMIN_TLS_CERT and ADMIN_TLS_KEY, or neither" >&2
+            exit 1
+        fi
+        check_external_file ADMIN_TLS_CERT "$ADMIN_TLS_CERT"
+        check_external_file ADMIN_TLS_KEY "$ADMIN_TLS_KEY"
+        if ! cert_matches_key "$ADMIN_TLS_CERT" "$ADMIN_TLS_KEY"; then
+            echo "ADMIN_TLS_CERT and ADMIN_TLS_KEY are not a valid matching PEM certificate and key" >&2
+            exit 1
+        fi
+        if ! openssl x509 -checkend 0 -noout -in "$ADMIN_TLS_CERT" >/dev/null; then
+            echo "WARNING: ADMIN_TLS_CERT has expired; is its renewal (certbot) running?" >&2
+        fi
+        ADMIN_TLS_EXTERNAL=true
+        ADMIN_SRC_CERT=$ADMIN_TLS_CERT
+        ADMIN_SRC_KEY=$ADMIN_TLS_KEY
+    else
+        ADMIN_TLS_ISSUED=true
+        ADMIN_SRC_CERT="$INTERMEDIATECA_DIRECTORY/certs/$ADMIN_NAME.cert.pem"
+        ADMIN_SRC_KEY="$INTERMEDIATECA_DIRECTORY/private/$ADMIN_NAME.key.pem"
+    fi
 fi
+
+renew_service_certs() {
+    if [ "$ACME" = "true" ]; then
+        ensure_service_cert "$ACME_NAME" "ACME Service"
+        install_tls_bundle "$INTERMEDIATECA_DIRECTORY/certs/$ACME_NAME.cert.pem" \
+            "$INTERMEDIATECA_DIRECTORY/private/$ACME_NAME.key.pem" "$ACME_BUNDLE" \
+            && reload_gunicorn "$ACME_PID_FILE" "ACME server"
+    fi
+    if [ "$ADMIN_TLS_ISSUED" = "true" ]; then
+        ensure_service_cert "$ADMIN_NAME" "Admin UI" "${ADMIN_TLS_SANS-DNS:localhost,IP:127.0.0.1}"
+    fi
+    if [ "$ADMIN_TLS_ISSUED" = "true" ] || [ "$ADMIN_TLS_EXTERNAL" = "true" ]; then
+        install_tls_bundle "$ADMIN_SRC_CERT" "$ADMIN_SRC_KEY" "$ADMIN_BUNDLE" \
+            && reload_gunicorn "$ADMIN_PID_FILE" "admin UI"
+    fi
+    return 0
+}
+renew_service_certs
+if [ "$ACME" = "true" ] && [ ! -s "$ACME_BUNDLE" ]; then
+    echo "Could not set up the ACME server's TLS certificate" >&2
+    exit 1
+fi
+if { [ "$ADMIN_TLS_ISSUED" = "true" ] || [ "$ADMIN_TLS_EXTERNAL" = "true" ]; } && [ ! -s "$ADMIN_BUNDLE" ]; then
+    echo "Could not set up the admin UI's TLS certificate" >&2
+    exit 1
+fi
+
+# Hourly by default: cheap (a few `openssl x509` reads), and a renewed
+# certbot certificate is picked up within the hour.
+service_cert_renewal_forever() {
+    while true; do
+        sleep "${SERVICE_CERT_CHECK_SECONDS:-3600}"
+        renew_service_certs >/dev/null || echo "Service certificate renewal failed" >&2
+    done
+}
 
 # The root CA is only needed to sign the intermediate, which happened above.
 # Nothing started below (admin UI, OCSP responder, CRL refresh) uses it, so
@@ -128,14 +282,24 @@ if [ "$ACME" = "true" ]; then
     # threads. TLS with the certificate issued for acme.$DOMAIN above.
     run_forever "ACME server" python3 -m gunicorn --chdir admin \
         --bind "0.0.0.0:${ACME_PORT:-8443}" --workers 1 --threads 8 --timeout 120 \
-        --certfile "$INTERMEDIATECA_DIRECTORY/certs/$ACME_NAME.cert.pem" \
-        --keyfile "$INTERMEDIATECA_DIRECTORY/private/$ACME_NAME.key.pem" \
-        --access-logfile - acme:app &
+        --certfile "$ACME_BUNDLE" \
+        --pid "$ACME_PID_FILE" --access-logfile - acme:app &
     BACKGROUND=true
 fi
 
-if [ "$ADMIN_UI" = "true" ]; then
-    echo "Starting admin UI on port ${ADMIN_PORT:-8080}"
+if [ "$ACME" = "true" ] || [ "$ADMIN_TLS_ISSUED" = "true" ] || [ "$ADMIN_TLS_EXTERNAL" = "true" ]; then
+    service_cert_renewal_forever &
+fi
+
+if [ "$ADMIN_UI" = "true" ] && [ "$ADMIN_TLS" = "true" ]; then
+    echo "Starting admin UI on https port ${ADMIN_PORT:-8080}"
+    # One worker: the CRL refresh and expiry alert threads run in it once.
+    exec python3 -m gunicorn --chdir admin \
+        --bind "0.0.0.0:${ADMIN_PORT:-8080}" --workers 1 --threads 8 --timeout 180 \
+        --certfile "$ADMIN_BUNDLE" \
+        --pid "$ADMIN_PID_FILE" --access-logfile - 'app:create_app()'
+elif [ "$ADMIN_UI" = "true" ]; then
+    echo "Starting admin UI on http port ${ADMIN_PORT:-8080}"
     exec python3 admin/app.py
 elif [ "$BACKGROUND" = "true" ]; then
     # This shell is PID 1 here, so stop the children on `docker stop`.
